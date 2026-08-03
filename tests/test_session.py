@@ -479,3 +479,62 @@ def test_a_corrupt_session_file_is_skipped(tmp_path):
 
 def test_listing_a_missing_root_is_empty(tmp_path):
     assert session.list_sessions(tmp_path / "nope") == []
+
+
+def test_one_odd_session_file_does_not_sink_the_whole_listing(tmp_path):
+    # A hand-edited session.json that parses but is not an object used to raise
+    # past the parse guard, so a single bad folder emptied the Sessions tab
+    # instead of losing one row.
+    (tmp_path / "a-list").mkdir()
+    (tmp_path / "a-list" / "session.json").write_text("[1, 2, 3]")
+    (tmp_path / "a-string").mkdir()
+    (tmp_path / "a-string" / "session.json").write_text('"nonsense"')
+    _write_session(tmp_path, "2026-08-03_10-00-00_job")
+    got = session.list_sessions(tmp_path)
+    assert [s["folder"] for s in got] == ["2026-08-03_10-00-00_job"]
+
+
+def test_a_non_numeric_started_does_not_break_the_sort(tmp_path):
+    _write_session(tmp_path, "2026-08-03_10-00-00_good", started=3000)
+    _write_session(tmp_path, "2026-08-01_10-00-00_odd", started="not-a-number")
+    got = session.list_sessions(tmp_path)
+    assert len(got) == 2
+    assert got[0]["folder"] == "2026-08-03_10-00-00_good"   # unsortable sinks
+
+
+def test_the_folder_comes_from_the_directory_not_the_file(tmp_path):
+    # A session.json carrying someone else's folder name must not redirect the
+    # UI at the folder it names.
+    d = _write_session(tmp_path, "2026-08-03_10-00-00_job")
+    doc = json.loads((d / "session.json").read_text())
+    doc["folder"] = "../elsewhere"
+    (d / "session.json").write_text(json.dumps(doc))
+    assert session.list_sessions(tmp_path)[0]["folder"] == "2026-08-03_10-00-00_job"
+
+
+def test_an_unwritable_folder_does_not_mask_the_stop_reason(tmp_path):
+    # The finally block writes through the same function that just failed. If
+    # that raises, it would replace the exception the loop was already raising
+    # and leave the caller with a PermissionError instead of the real cause.
+    calls = {"n": 0}
+
+    def capture(target_dir, stamp):
+        calls["n"] += 1
+        (target_dir / f"{stamp}.jpg").write_bytes(b"jpeg")
+        if calls["n"] == 1:
+            target_dir.chmod(0o500)          # now unwritable
+        return f"{stamp}.jpg"
+
+    clock = FakeClock()
+    stop = threading.Event()
+    st = session.State(name="", interval=10, started=int(clock.time()))
+    folder = tmp_path / st.folder
+    try:
+        session.run_loop(state=st, sessions_root=tmp_path, capture=capture,
+                         free_bytes=lambda: 20e9, clock=clock, stop_event=stop)
+    except PermissionError:
+        raise AssertionError("a failed session.json write must not escape")
+    finally:
+        folder.chmod(0o700)                  # so tmp_path cleanup works
+    assert st.running is False
+    assert st.stop_reason in ("manual", "error")

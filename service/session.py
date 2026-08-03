@@ -204,6 +204,11 @@ def list_sessions(sessions_root):
             doc = json.loads((d / "session.json").read_text())
         except (OSError, ValueError):
             continue
+        if not isinstance(doc, dict):
+            # Valid JSON but not an object: a hand-edited file. Without this
+            # the assignments below raise and cost the caller every other
+            # session, not just this one.
+            continue
         size = 0
         for f in d.glob("*.jpg"):
             try:
@@ -213,7 +218,10 @@ def list_sessions(sessions_root):
         doc["folder"] = d.name      # trust the folder, not the file's copy
         doc["size"] = size
         out.append(doc)
-    out.sort(key=lambda s: s.get("started") or 0, reverse=True)
+    # Sort on a coerced key: a string "started" in a hand-edited file would
+    # otherwise raise mid-sort and lose the whole listing.
+    out.sort(key=lambda s: s["started"] if isinstance(s.get("started"), (int, float))
+             and not isinstance(s.get("started"), bool) else 0, reverse=True)
     return out
 
 
@@ -248,7 +256,16 @@ def run_loop(state, sessions_root, capture, free_bytes, clock, stop_event):
                 # once they come in a streak.
                 state.record_failure(str(e) or e.__class__.__name__)
 
-            write_session_file(folder, state)
+            try:
+                write_session_file(folder, state)
+            except OSError as e:
+                # The record is the deliverable, so a folder we cannot write to
+                # is a stopping condition rather than something to soldier on
+                # through. End as an error instead of letting it escape and
+                # kill the thread with a bare PermissionError.
+                state.record_failure(f"Cannot write session.json: {e}")
+                reason = "error"
+                break
 
             if stop_event.is_set():
                 break
@@ -261,4 +278,11 @@ def run_loop(state, sessions_root, capture, free_bytes, clock, stop_event):
         raise
     finally:
         state.finish(reason, int(clock.time()))
-        write_session_file(folder, state)
+        try:
+            write_session_file(folder, state)
+        except OSError:
+            # The folder went unwritable (permissions, read-only remount, no
+            # inodes). Raising here would replace whatever the loop was already
+            # raising with a misleading write error, and the caller still has
+            # the correct State in memory to report from.
+            pass
