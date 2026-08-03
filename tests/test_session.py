@@ -50,6 +50,14 @@ def test_interval_accepts_a_numeric_string():
     assert session.clamp_interval("45") == 45
 
 
+def test_interval_rejects_a_boolean():
+    # bool is a subtype of int, so True would otherwise clamp to MIN_INTERVAL
+    # and run a session at 5s. A JSON body carrying true for this field is a
+    # client bug; the default is a safer reading of it than the fastest rate.
+    assert session.clamp_interval(True) == session.DEFAULT_INTERVAL
+    assert session.clamp_interval(False) == session.DEFAULT_INTERVAL
+
+
 def test_interval_survives_infinity():
     # The value arrives as parsed JSON, so a client can hand us "inf" or a bare
     # Infinity literal. int(float("inf")) raises OverflowError, not ValueError,

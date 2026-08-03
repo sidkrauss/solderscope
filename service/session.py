@@ -40,6 +40,10 @@ def folder_name(started, name):
 
 def clamp_interval(value):
     """Coerce a client-supplied interval into the supported range."""
+    if isinstance(value, bool):
+        # bool passes as an int, so True would clamp to MIN_INTERVAL and run
+        # the session at 5s. Treat it as the client bug it is.
+        return DEFAULT_INTERVAL
     try:
         n = int(float(value))
     except (TypeError, ValueError, OverflowError):
@@ -57,6 +61,10 @@ def next_tick(started, interval, now):
     so a nominal 10s interval would drift out to 13s or worse. If a capture
     overran one or more slots, this returns the next slot strictly in the
     future instead of firing the missed ones back to back.
+
+    `interval` must be positive -- pass it through clamp_interval() first. A
+    zero interval divides by zero and a negative one walks the schedule
+    backwards, so the only caller (run_loop) reads it from a clamped State.
     """
     elapsed = now - started
     return started + interval * (math.floor(elapsed / interval) + 1)
