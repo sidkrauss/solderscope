@@ -68,3 +68,53 @@ def next_tick(started, interval, now):
     """
     elapsed = now - started
     return started + interval * (math.floor(elapsed / interval) + 1)
+
+
+class State:
+    """Everything known about one session.
+
+    Mutated by the capture loop, read by the HTTP handler. The caller holds a
+    lock around both; this class does no locking of its own.
+    """
+
+    def __init__(self, name, interval, started):
+        self.name = name or ""
+        self.interval = interval
+        self.started = started
+        self.ended = None
+        self.folder = folder_name(started, name)
+        self.photos = 0
+        self.last_frame = None
+        self.last_error = None
+        self.consecutive_failures = 0
+        self.running = True
+        self.stop_reason = "running"
+
+    def record_frame(self, filename):
+        self.photos += 1
+        self.last_frame = filename
+        self.last_error = None
+        self.consecutive_failures = 0
+
+    def record_failure(self, message):
+        self.last_error = message
+        self.consecutive_failures += 1
+
+    def finish(self, reason, now):
+        self.running = False
+        self.stop_reason = reason
+        self.ended = now
+
+    def as_json(self):
+        """The session.json document. Rewritten after every frame, so a session
+        cut short by a power failure still leaves a readable record."""
+        return {
+            "name": self.name,
+            "folder": self.folder,
+            "interval": self.interval,
+            "started": self.started,
+            "ended": self.ended,
+            "photos": self.photos,
+            "stop_reason": self.stop_reason,
+            "last_error": self.last_error,
+        }

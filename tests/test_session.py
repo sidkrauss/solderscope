@@ -82,3 +82,56 @@ def test_next_tick_skips_slots_missed_by_a_slow_capture():
 
 def test_next_tick_lands_exactly_on_a_slot_boundary():
     assert session.next_tick(started=1000, interval=10, now=1020) == 1030
+
+
+def test_new_state_starts_running_with_no_photos():
+    st = session.State(name="Rework", interval=10, started=1000)
+    assert st.running is True
+    assert st.photos == 0
+    assert st.stop_reason == "running"
+    assert st.folder == session.folder_name(1000, "Rework")
+
+
+def test_recording_a_frame_updates_the_counters():
+    st = session.State(name="", interval=10, started=1000)
+    st.record_frame("2026-08-03_14-31-05.jpg")
+    assert st.photos == 1
+    assert st.last_frame == "2026-08-03_14-31-05.jpg"
+    assert st.last_error is None
+    assert st.consecutive_failures == 0
+
+
+def test_a_failure_is_remembered_and_counted():
+    st = session.State(name="", interval=10, started=1000)
+    st.record_failure("Capture failed")
+    assert st.photos == 0
+    assert st.last_error == "Capture failed"
+    assert st.consecutive_failures == 1
+
+
+def test_a_good_frame_clears_the_failure_streak():
+    st = session.State(name="", interval=10, started=1000)
+    st.record_failure("Capture failed")
+    st.record_frame("a.jpg")
+    assert st.consecutive_failures == 0
+    assert st.last_error is None
+
+
+def test_finishing_records_the_reason_and_end_time():
+    st = session.State(name="", interval=10, started=1000)
+    st.finish("manual", now=1600)
+    assert st.running is False
+    assert st.stop_reason == "manual"
+    assert st.ended == 1600
+
+
+def test_as_json_carries_what_the_session_file_needs():
+    st = session.State(name="Rework", interval=10, started=1000)
+    st.record_frame("a.jpg")
+    doc = st.as_json()
+    assert doc["name"] == "Rework"
+    assert doc["interval"] == 10
+    assert doc["started"] == 1000
+    assert doc["photos"] == 1
+    assert doc["stop_reason"] == "running"
+    assert doc["folder"] == st.folder
