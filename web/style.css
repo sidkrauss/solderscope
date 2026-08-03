@@ -137,3 +137,43 @@ canvas{max-width:100%; max-height:calc(100vh - 130px); touch-action:none; backgr
 
 .cropActions{gap:6px}
 .cropActions button{font-size:13px}
+
+/* ---------- interval sessions ---------- */
+
+.sessionControls{margin-top:8px}
+
+.intervalWrap{display:flex; align-items:center; gap:6px; color:var(--muted); font-size:13px}
+.intervalWrap input{
+  width:88px; padding:12px 14px; border-radius:8px;
+  border:1px solid var(--line); background:var(--panel); color:var(--fg); font-size:15px;
+}
+
+/* Stands in for the live view while the stream is stopped. */
+.sessionPanel{
+  display:flex; flex-direction:column; gap:12px;
+  padding:14px; border-radius:10px;
+  background:var(--panel); border:1px solid var(--line);
+}
+.sessionPanel img{
+  width:100%; border-radius:8px; background:#000;
+  aspect-ratio:4/3; object-fit:contain; display:block;
+}
+.sessionInfo{display:flex; flex-direction:column; gap:3px; min-width:0}
+.sessionInfo span{font-size:13px; color:var(--muted)}
+.sessionInfo .err:empty{display:none}
+.sessionInfo .err{color:#ff6b6b}
+
+.dot.session{background:var(--accent); box-shadow:0 0 8px var(--accent); animation:pulse 1.4s infinite}
+
+.sessionList{display:flex; flex-direction:column; gap:8px}
+.sessionCard{
+  display:flex; align-items:center; justify-content:space-between; gap:14px;
+  padding:11px 14px; border-radius:8px;
+  background:var(--panel); border:1px solid var(--line);
+}
+.sessionMeta{display:flex; flex-direction:column; gap:2px; min-width:0}
+.sessionMeta b{font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.sessionMeta span{font-size:13px; color:var(--muted)}
+.sessionMeta .err{color:#ff6b6b}
+.openSession{padding:7px 12px; font-size:13px}
+#backToSessions{margin-bottom:12px; padding:8px 14px; font-size:14px}

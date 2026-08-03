@@ -22,8 +22,10 @@ function setBusy(on, text) {
   busy = on;
   $("busy").classList.toggle("hidden", !on);
   if (text) $("busyText").textContent = text;
-  $("photo").disabled = on;
-  $("record").disabled = on;
+  // A session holds the sensor for its whole run, so neither button may come
+  // back just because this capture finished.
+  $("photo").disabled = on || sessionRunning;
+  $("record").disabled = on || sessionRunning;
 }
 
 function reloadPlayer() {
@@ -89,12 +91,17 @@ async function api(path, opts) {
 
 /* ---------- status ---------- */
 
+let sessionRunning = false;
+
 async function refreshStatus() {
   try {
     const s = await api("/api/status");
     recording = s.recording;
-    $("dot").className = "dot " + (s.recording ? "rec" : s.stream_active ? "live" : "off");
-    $("statusText").textContent = s.recording ? "Recording"
+    applySession(s.session);
+    $("dot").className = "dot " + (sessionRunning ? "session"
+      : s.recording ? "rec" : s.stream_active ? "live" : "off");
+    $("statusText").textContent = sessionRunning ? "Session running"
+      : s.recording ? "Recording"
       : s.stream_active ? "Live" : "Stream down";
     $("disk").textContent = s.disk ? `· ${s.disk.free_gb} GB free` : "";
     $("record").textContent = recording ? "⏹ Stop recording" : "⏺ Start recording";
@@ -104,6 +111,86 @@ async function refreshStatus() {
     $("statusText").textContent = "no connection";
   }
 }
+
+const fmtDuration = (s) =>
+  `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+/* Swap the live view for the session panel. The stream is stopped while a
+   session runs, so the last captured frame is all there is to show -- and it is
+   what tells the operator the board is still in frame. */
+function applySession(st) {
+  const running = !!(st && st.running);
+  const ended = sessionRunning && !running;
+  sessionRunning = running;
+
+  $("sessionPanel").classList.toggle("hidden", !running);
+  $("sessionIdle").classList.toggle("hidden", running);
+  document.querySelector(".frame").classList.toggle("hidden", running);
+  // A manual photo or a recording during a session could only fail on the
+  // capture lock, so do not offer them.
+  $("photo").disabled = running || busy;
+  $("record").disabled = running || busy;
+
+  if (running) {
+    $("sessionTitle").textContent = st.name || "Session";   // textContent: no escaping needed
+    $("sessionStats").textContent =
+      `${st.photos} photo${st.photos === 1 ? "" : "s"} · ${fmtDuration(st.elapsed)} · every ${st.interval}s · ${st.free_gb} GB free`;
+    $("sessionError").textContent = st.last_error ? `last error: ${st.last_error}` : "";
+    if (st.last_url && $("sessionShot").dataset.url !== st.last_url) {
+      $("sessionShot").dataset.url = st.last_url;
+      $("sessionShot").src = st.last_url;
+    }
+  }
+
+  if (ended) {
+    // The service clears its session state in the same breath as it stamps the
+    // stop reason, so this payload is a bare {running:false}. The reason still
+    // reaches the operator: it is written to session.json and shown on the card
+    // that loadSessions() pulls in right below.
+    hint("Session stopped", "ok");
+    $("sessionShot").removeAttribute("src");
+    delete $("sessionShot").dataset.url;
+    $("sessionError").textContent = "";
+    loadSessions();
+    recoverStream();          // same blank-until-ready path as after a photo
+  }
+}
+
+$("sessionStart").onclick = async () => {
+  $("sessionStart").disabled = true;
+  hint("");
+  try {
+    const st = await api("/api/session/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: $("sessionName").value.trim(),
+        interval: +$("sessionInterval").value,
+      }),
+    });
+    // The stream is going down; do not leave the player showing a dead frame.
+    $("player").src = "about:blank";
+    applySession(st);
+    hint(`Session started, one photo every ${st.interval}s`, "ok");
+  } catch (e) {
+    hint(`Error: ${e.message}`, "err");
+  } finally {
+    $("sessionStart").disabled = false;
+  }
+};
+
+$("sessionStop").onclick = async () => {
+  $("sessionStop").disabled = true;
+  try {
+    await api("/api/session/stop", { method: "POST" });
+    hint("Stopping session…", "ok");
+  } catch (e) {
+    hint(`Error: ${e.message}`, "err");
+  } finally {
+    $("sessionStop").disabled = false;
+    refreshStatus();
+  }
+};
 
 /* ---------- capture ---------- */
 
@@ -154,12 +241,74 @@ const fmtSize = (b) => b > 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.round(b / 1
 const fmtTime = (t) => new Date(t * 1000).toLocaleString(undefined,
   { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
+/* The session name is free text and the cards are built with innerHTML.
+   Escaping here keeps a name like "Q&A <board>" rendering as typed. */
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
 async function loadMedia() {
   try {
     const m = await api("/api/media");
     render($("photos"), m.photos, false);
     render($("videos"), m.videos, true);
   } catch { /* keep last view on transient errors */ }
+}
+
+/* ---------- sessions gallery ---------- */
+
+let openSession = null;      // folder name while a session's frames are shown
+
+async function loadSessions() {
+  try {
+    const { sessions } = await api("/api/sessions");
+    renderSessions(sessions);
+  } catch { /* keep the last view on transient errors */ }
+}
+
+function renderSessions(items) {
+  const host = $("sessions");
+  if (!items.length) {
+    host.innerHTML = `<p class="empty">No sessions recorded yet.</p>`;
+    return;
+  }
+  const why = { disk: "stopped: disk almost full", error: "stopped: captures failed" };
+  // photos/interval come straight out of session.json, which the service does
+  // not type-check. Coerce rather than escape: they are only ever numbers, and
+  // a hand-edited file must not put markup on the card.
+  const num = (v) => Number.isFinite(+v) ? +v : 0;
+  host.innerHTML = items.map((s) => `
+    <div class="sessionCard">
+      <div class="sessionMeta">
+        <b>${esc(s.name) || "Session"}</b>
+        <span>${fmtTime(s.started)} · ${num(s.photos)} photo${num(s.photos) === 1 ? "" : "s"} · ${fmtSize(s.size)} · every ${num(s.interval)}s</span>
+        ${why[s.stop_reason] ? `<span class="err">${why[s.stop_reason]}</span>` : ""}
+      </div>
+      <span class="acts">
+        <button class="openSession" data-id="${esc(s.folder)}">Open</button>
+        <button class="del" data-path="session:${esc(s.folder)}" data-name="${esc(s.name || s.folder)}" title="Delete session">🗑</button>
+      </span>
+    </div>`).join("");
+
+  host.querySelectorAll(".openSession").forEach((b) => {
+    b.onclick = () => showSessionFrames(b.dataset.id);
+  });
+  host.querySelectorAll(".del").forEach((b) => {
+    b.onclick = (e) => { e.stopPropagation(); askDelete(b.dataset.path, b.dataset.name); };
+  });
+}
+
+async function showSessionFrames(id) {
+  try {
+    const { frames } = await api(`/api/session-frames?id=${encodeURIComponent(id)}`);
+    openSession = id;
+    const host = $("sessions");
+    host.innerHTML = `<button id="backToSessions">← All sessions</button>
+                      <div class="grid" id="sessionGrid"></div>`;
+    $("backToSessions").onclick = () => { openSession = null; loadSessions(); };
+    render($("sessionGrid"), frames, false);   // reuses the photo grid + editor
+  } catch (e) {
+    hint(`Error: ${e.message}`, "err");
+  }
 }
 
 function render(host, items, isVideo) {
@@ -170,16 +319,16 @@ function render(host, items, isVideo) {
   host.innerHTML = items.map((it) => `
     <div class="card">
       ${isVideo
-        ? `<video src="${it.url}" controls preload="metadata"></video>`
-        : `<img src="${it.thumb || it.url}" loading="lazy" decoding="async"
-               data-full="${it.url}" data-name="${it.name}"
-               onerror="this.onerror=null;this.src='${it.url}'">`}
-      <div class="meta"><b title="${it.name}">${it.name}</b><span>${fmtSize(it.size)}</span></div>
+        ? `<video src="${esc(it.url)}" controls preload="metadata"></video>`
+        : `<img src="${esc(it.thumb || it.url)}" loading="lazy" decoding="async"
+               data-full="${esc(it.url)}" data-name="${esc(it.name)}"
+               data-fallback="${esc(it.url)}">`}
+      <div class="meta"><b title="${esc(it.name)}">${esc(it.name)}</b><span>${fmtSize(it.size)}</span></div>
       <div class="meta">
         <span>${fmtTime(it.mtime)}</span>
         <span class="acts">
-          <a href="${it.url}" download title="Download">⤓</a>
-          <button class="del" data-path="${it.url}" data-name="${it.name}" title="Delete">🗑</button>
+          <a href="${esc(it.url)}" download title="Download">⤓</a>
+          <button class="del" data-path="${esc(it.url)}" data-name="${esc(it.name)}" title="Delete">🗑</button>
         </span>
       </div>
     </div>`).join("");
@@ -187,6 +336,9 @@ function render(host, items, isVideo) {
   if (!isVideo) {
     host.querySelectorAll("img").forEach((img) => {
       img.onclick = () => openEditor(img.dataset.full, img.dataset.name);
+      // Thumbnails are generated in the background, so one may 404 on the first
+      // listing after a capture. Fall back to the full frame, once.
+      img.onerror = () => { img.onerror = null; img.src = img.dataset.fallback; };
     });
   }
   host.querySelectorAll(".del").forEach((b) => {
@@ -220,7 +372,8 @@ async function doDelete(path, name) {
       body: JSON.stringify({ path }),
     });
     hint(`Deleted: ${name}`, "ok");
-    await loadMedia();
+    if (openSession) { await showSessionFrames(openSession); }
+    else { await loadMedia(); await loadSessions(); }
     refreshStatus();
   } catch (e) {
     hint(`Delete failed: ${e.message}`, "err");
@@ -233,6 +386,8 @@ document.querySelectorAll(".tab").forEach((t) => {
     t.classList.add("active");
     $("photos").classList.toggle("hidden", t.dataset.tab !== "photos");
     $("videos").classList.toggle("hidden", t.dataset.tab !== "videos");
+    $("sessions").classList.toggle("hidden", t.dataset.tab !== "sessions");
+    if (t.dataset.tab === "sessions" && !openSession) loadSessions();
   };
 });
 
@@ -809,4 +964,5 @@ document.querySelector(".frame").addEventListener("dblclick", (e) => {
 /* ---------- boot ---------- */
 refreshStatus();
 loadMedia();
+loadSessions();
 setInterval(() => { if (!busy) refreshStatus(); }, 5000);
