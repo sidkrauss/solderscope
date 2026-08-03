@@ -12,7 +12,12 @@ actual work happens through the binocular; the stream is there to document it.
 > Built for a trusted workshop network. No authentication, no TLS.
 > See [Access and security](#access-and-security) before deploying it anywhere.
 
-![solderscope live view in the browser](docs/screenshots/01-live.jpg)
+![The microscope with the camera enclosure on the photo tube](docs/screenshots/00-build.jpg)
+
+The camera sits on the photo tube of a stereo microscope, in the orange printed
+enclosure. What comes out the other end:
+
+![Example of an annotated defect image](docs/example-annotated.jpg)
 
 ## What it does
 
@@ -28,6 +33,10 @@ actual work happens through the binocular; the stream is there to document it.
 
 ## What it looks like
 
+The live view in the browser, on whatever device is to hand:
+
+![solderscope live view in the browser](docs/screenshots/01-live.jpg)
+
 Every capture in one place, with size, timestamp, download and delete:
 
 ![Gallery of photos and videos](docs/screenshots/02-gallery.jpg)
@@ -40,10 +49,6 @@ arrow and numbered callouts:
 Cropping down to what matters. Existing annotations move with the crop:
 
 ![Cropping inside the editor](docs/screenshots/04-crop.jpg)
-
-The finished result, as the customer receives it:
-
-![Example of an annotated defect image](docs/example-annotated.jpg)
 
 An interval session running. There is no stream while one does, so the last
 captured frame stands in for the live view, which is how you notice the board
@@ -91,10 +96,9 @@ same annotation editor:
 
 ### The build
 
-![The microscope with the camera enclosure on the photo tube](docs/screenshots/00-build.jpg)
-
 The HQ Camera and the Pi Zero 2 W share a single 3D printed enclosure, the
-orange box sitting on the photo tube, with the 0.5× C-mount adapter below it.
+orange box on the photo tube in the photo at the top, with the 0.5× C-mount
+adapter below it.
 
 > **On the enclosure model:** This project grew over a long stretch of time, and
 > the origin of the files originally printed can no longer be traced. If you are
