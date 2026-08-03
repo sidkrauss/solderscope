@@ -1,0 +1,37 @@
+# Aufnahmen gehören nicht ins Repo
+*.jpg
+*.jpeg
+*.mp4
+media/
+recordings/
+
+# Backups der Konfiguration
+*.bak
+*.bak-*
+*.orig
+
+__pycache__/
+*.pyc
+.DS_Store
+
+# Beispielbild fuer die Doku ist gewollt
+!docs/example-annotated.jpg
+
+# Dotfiles des Arbeitsverzeichnisses (keine Projektdateien)
+/.bash_profile
+/.bashrc
+/.gitconfig
+/.gitmodules
+/.idea
+/.mcp.json
+/.profile
+/.ripgreprc
+/.vscode
+/.zprofile
+/.zshrc
+/.claude/
+!docs/screenshots/*.jpg
+
+# Vorgaengerdatei, ersetzt durch sudoers-solderscope
+/config/sudoers-picamlab
+/config/sudoers-*

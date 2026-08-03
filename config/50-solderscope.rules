@@ -1,0 +1,21 @@
+// Let the capture service hand the camera over between MediaMTX and
+// rpicam-still without sudo.
+//
+// The camera is exclusive: a full-resolution still is only possible while
+// MediaMTX has released the sensor, so the service needs to stop and start
+// that one unit.
+//
+// Scope is deliberately narrow: one user, one unit, only the verbs systemd
+// groups under manage-units. Everything else still requires authentication.
+//
+// Install as /etc/polkit-1/rules.d/50-solderscope.rules (owned by root, 0644).
+// Requires polkit 0.106 or newer for JavaScript rules; Bookworm ships 122.
+
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") == "mediamtx.service" &&
+        subject.user == "master" &&
+        !subject.remote) {
+        return polkit.Result.YES;
+    }
+});

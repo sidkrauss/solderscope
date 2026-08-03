@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>solderscope — Lötmikroskop</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header>
+  <h1>solderscope</h1>
+  <div class="status">
+    <span id="dot" class="dot"></span>
+    <span id="statusText">verbinde…</span>
+    <span id="disk" class="disk"></span>
+  </div>
+</header>
+
+<main>
+  <section class="live">
+    <div class="frame">
+      <iframe id="player" src="" allow="autoplay; fullscreen"></iframe>
+      <button id="fullscreen" title="Vollbild">⛶</button>
+      <div id="busy" class="busy hidden">
+        <div class="spinner"></div>
+        <p id="busyText">Foto wird aufgenommen…</p>
+        <small>Der Stream kommt gleich von selbst zurück.</small>
+      </div>
+    </div>
+
+    <div class="controls">
+      <input id="job" type="text" placeholder="Auftrag / Kunde (optional)" autocomplete="off">
+      <button id="photo" class="primary">📷 Foto (12 MP)</button>
+      <button id="record">⏺ Aufnahme starten</button>
+    </div>
+    <p id="hint" class="hint"></p>
+  </section>
+
+  <section class="gallery">
+    <div class="tabs">
+      <button class="tab active" data-tab="photos">Fotos</button>
+      <button class="tab" data-tab="videos">Videos</button>
+    </div>
+    <div id="photos" class="grid"></div>
+    <div id="videos" class="grid hidden"></div>
+  </section>
+</main>
+
+<!-- Annotation editor, Flameshot-style toolbar -->
+<div id="editor" class="overlay hidden">
+  <div class="editorBar">
+    <div class="group tools">
+      <button class="tool active" data-tool="arrow" title="Pfeil (A)">↗</button>
+      <button class="tool" data-tool="line" title="Linie (L)">╱</button>
+      <button class="tool" data-tool="rect" title="Rechteck (R)">▭</button>
+      <button class="tool" data-tool="ellipse" title="Ellipse (E)">◯</button>
+      <button class="tool" data-tool="free" title="Freihand (F)">✎</button>
+      <button class="tool" data-tool="marker" title="Marker (M)">▬</button>
+      <button class="tool" data-tool="text" title="Text (T)">T</button>
+      <button class="tool" data-tool="counter" title="Nummerierung (C)">①</button>
+      <button class="tool" data-tool="pixelate" title="Verpixeln (P)">▒</button>
+      <button class="tool" data-tool="crop" title="Zuschneiden (K)">⛶</button>
+    </div>
+
+    <div class="group cropActions hidden" id="cropActions">
+      <button id="cropApply" class="primary">Zuschneiden</button>
+      <button id="cropCancel">Abbrechen</button>
+    </div>
+
+    <span class="sep"></span>
+
+    <div class="group colors">
+      <label class="swatch"><input type="radio" name="col" value="#ff2d2d" checked><i style="background:#ff2d2d"></i></label>
+      <label class="swatch"><input type="radio" name="col" value="#ffd400"><i style="background:#ffd400"></i></label>
+      <label class="swatch"><input type="radio" name="col" value="#00e05a"><i style="background:#00e05a"></i></label>
+      <label class="swatch"><input type="radio" name="col" value="#2d9bff"><i style="background:#2d9bff"></i></label>
+      <label class="swatch"><input type="radio" name="col" value="#ffffff"><i style="background:#fff"></i></label>
+      <label class="swatch"><input type="radio" name="col" value="#000000"><i style="background:#000"></i></label>
+    </div>
+
+    <span class="sep"></span>
+
+    <div class="group">
+      <label class="rangeWrap" title="Strichstärke">
+        <span class="rangeIcon">●</span>
+        <input id="width" type="range" min="1" max="8" value="3">
+      </label>
+      <button id="fill" title="Formen füllen">Füllung</button>
+    </div>
+
+    <span class="sep"></span>
+
+    <div class="group">
+      <button id="undo" title="Rückgängig (Strg+Z)">↶</button>
+      <button id="redo" title="Wiederherstellen (Strg+Y)">↷</button>
+      <button id="clear" title="Alle Markierungen entfernen">Leeren</button>
+    </div>
+
+    <span class="grow"></span>
+
+    <div class="group">
+      <button id="download" title="Herunterladen">⤓ Laden</button>
+      <button id="save" class="primary">Speichern</button>
+      <button id="close" title="Schließen (Esc)">✕</button>
+    </div>
+  </div>
+
+  <div class="canvasWrap">
+    <div class="canvasStage">
+      <canvas id="canvas"></canvas>
+      <!-- In-place text entry: no browser prompt() dialog -->
+      <textarea id="textInput" class="hidden" spellcheck="false" rows="1"></textarea>
+    </div>
+  </div>
+  <p class="editorHint" id="editorHint"></p>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

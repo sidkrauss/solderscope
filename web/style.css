@@ -1,0 +1,139 @@
+:root{
+  --bg:#14161a; --panel:#1c1f26; --line:#2b303a;
+  --fg:#e8eaee; --muted:#9aa3b2; --accent:#2d9bff; --ok:#00c853; --warn:#ffab00;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+header{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:12px 16px; background:var(--panel); border-bottom:1px solid var(--line);
+  position:sticky; top:0; z-index:5;
+}
+h1{font-size:17px; margin:0; letter-spacing:.3px}
+.status{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted)}
+.dot{width:9px; height:9px; border-radius:50%; background:var(--muted)}
+.dot.live{background:var(--ok)} .dot.rec{background:#ff2d2d; animation:pulse 1.4s infinite}
+.dot.off{background:var(--warn)}
+@keyframes pulse{50%{opacity:.25}}
+.disk{opacity:.7}
+
+main{max-width:1100px; margin:0 auto; padding:16px}
+.frame{position:relative; background:#000; border-radius:10px; overflow:hidden; aspect-ratio:4/3}
+iframe{width:100%; height:100%; border:0; display:block}
+
+/* Own fullscreen control: MediaMTX's video bar is hidden via controls=false
+   because a scrubber and timer make no sense on a live stream. */
+#fullscreen{
+  position:absolute; right:10px; bottom:10px; z-index:2;
+  padding:8px 11px; font-size:16px; line-height:1; border-radius:8px;
+  background:rgba(20,22,26,.6); border:1px solid rgba(255,255,255,.18);
+  color:#fff; opacity:0; transition:opacity .15s;
+}
+.frame:hover #fullscreen, .frame:focus-within #fullscreen{opacity:1}
+@media (hover:none){ #fullscreen{opacity:.85} }   /* always visible on touch */
+.frame:fullscreen{aspect-ratio:auto; height:100%; border-radius:0}
+
+/* CSS fullscreen: the only variant iOS Safari supports for non-video elements. */
+.frame.expanded{
+  position:fixed; inset:0; z-index:30; aspect-ratio:auto;
+  width:100vw; height:100dvh; border-radius:0;
+}
+.frame.expanded #fullscreen{opacity:1; bottom:max(14px, env(safe-area-inset-bottom))}
+body.noscroll{overflow:hidden}
+
+/* Touch targets need to be reachable; iOS ignores :hover entirely. */
+.acts{display:flex; align-items:center; gap:8px}
+.acts a, .del{
+  color:var(--muted); text-decoration:none; background:none; border:0;
+  padding:2px 4px; font-size:13px; cursor:pointer; line-height:1;
+}
+.acts a:hover, .del:hover{color:var(--fg)}
+.del.armed{color:#ff6b6b; font-size:11px; font-weight:600}
+
+.busy{
+  position:absolute; inset:0; background:rgba(10,12,15,.9);
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; text-align:center; padding:20px;
+}
+.busy p{margin:0; font-weight:600}
+.busy small{color:var(--muted)}
+.spinner{width:34px;height:34px;border:3px solid #333;border-top-color:var(--accent);border-radius:50%;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.controls{display:flex; gap:8px; margin-top:12px; flex-wrap:wrap}
+input[type=text]{
+  flex:1 1 200px; min-width:0; padding:12px 14px; border-radius:8px;
+  border:1px solid var(--line); background:var(--panel); color:var(--fg); font-size:15px;
+}
+button{
+  padding:12px 16px; border-radius:8px; border:1px solid var(--line);
+  background:var(--panel); color:var(--fg); font-size:15px; cursor:pointer;
+  touch-action:manipulation;
+}
+button:hover:not(:disabled){border-color:#41485a}
+button:disabled{opacity:.5; cursor:not-allowed}
+button.primary{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
+button.recording{background:#ff2d2d; border-color:#ff2d2d; color:#fff; font-weight:600}
+.hint{min-height:20px; margin:8px 2px 0; font-size:13px; color:var(--muted)}
+.hint.err{color:#ff6b6b} .hint.ok{color:var(--ok)}
+
+.gallery{margin-top:26px}
+.tabs{display:flex; gap:6px; margin-bottom:12px}
+.tab{padding:8px 14px; font-size:14px; background:transparent}
+.tab.active{background:var(--panel); border-color:var(--accent)}
+.grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px}
+.card{background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden}
+.card img,.card video{width:100%; aspect-ratio:4/3; object-fit:cover; display:block; background:#000; cursor:pointer}
+.meta{padding:7px 9px; font-size:11px; color:var(--muted); display:flex; justify-content:space-between; gap:6px}
+.meta b{color:var(--fg); font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.empty{color:var(--muted); font-size:14px; padding:18px 2px}
+
+.overlay{position:fixed; inset:0; background:#0b0d10; z-index:20; display:flex; flex-direction:column}
+.editorBar{
+  display:flex; align-items:center; gap:4px; padding:8px 10px; background:var(--panel);
+  border-bottom:1px solid var(--line); flex-wrap:wrap;
+}
+.group{display:flex; align-items:center; gap:3px}
+.grow{flex:1}
+.editorBar button{padding:8px 10px; font-size:14px; line-height:1; min-width:38px}
+.tools button{font-size:16px; min-width:40px}
+.tool.active{background:var(--accent); border-color:var(--accent); color:#fff}
+#fill.active{background:var(--accent); border-color:var(--accent); color:#fff}
+.sep{width:1px; height:26px; background:var(--line); margin:0 5px}
+
+.swatch{cursor:pointer; display:inline-flex}
+.swatch input{display:none}
+.swatch i{width:24px; height:24px; border-radius:50%; display:block; border:2px solid #444}
+.swatch input:checked + i{border-color:#fff; box-shadow:0 0 0 2px var(--accent)}
+
+.rangeWrap{display:flex; align-items:center; gap:6px; padding:0 6px}
+.rangeIcon{color:var(--muted); font-size:12px}
+#width{width:90px; accent-color:var(--accent)}
+
+.canvasWrap{flex:1; overflow:auto; display:flex; align-items:center; justify-content:center; padding:10px}
+.canvasStage{position:relative; display:inline-block; max-width:100%; max-height:100%}
+canvas{max-width:100%; max-height:calc(100vh - 130px); touch-action:none; background:#000; cursor:crosshair; display:block}
+
+#textInput{
+  position:absolute; margin:0; padding:2px 4px;
+  background:rgba(0,0,0,.55); border:1px dashed rgba(255,255,255,.6);
+  font-family:system-ui,sans-serif; font-weight:600; line-height:1.25;
+  outline:none; resize:none; overflow:hidden; white-space:pre;
+  min-width:60px; z-index:2;
+}
+.editorHint{
+  margin:0; padding:6px 12px; font-size:12px; color:var(--muted);
+  background:var(--panel); border-top:1px solid var(--line); min-height:26px;
+}
+
+.hidden{display:none !important}
+@media (max-width:600px){
+  .controls button{flex:1 1 100%}
+  main{padding:12px}
+}
+
+.cropActions{gap:6px}
+.cropActions button{font-size:13px}
