@@ -33,3 +33,18 @@ def test_folder_name_puts_the_stamp_first_so_folders_sort_by_time():
     earlier = session.folder_name(1754226665, "zzz")
     later = session.folder_name(1754226665 + 3600, "aaa")
     assert earlier < later
+
+
+def test_interval_is_clamped_to_the_supported_range():
+    assert session.clamp_interval(30) == 30
+    assert session.clamp_interval(1) == session.MIN_INTERVAL
+    assert session.clamp_interval(99999) == session.MAX_INTERVAL
+
+
+def test_interval_falls_back_to_the_default_when_unusable():
+    assert session.clamp_interval("abc") == session.DEFAULT_INTERVAL
+    assert session.clamp_interval(None) == session.DEFAULT_INTERVAL
+
+
+def test_interval_accepts_a_numeric_string():
+    assert session.clamp_interval("45") == 45

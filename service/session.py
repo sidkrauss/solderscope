@@ -11,6 +11,12 @@ what the folder is called -- testable without a camera attached.
 
 from datetime import datetime
 
+# Below ~5s a Zero 2 W cannot finish a 12 MP capture plus its thumbnail before
+# the next tick is due, so the schedule would fall permanently behind.
+MIN_INTERVAL = 5
+MAX_INTERVAL = 3600
+DEFAULT_INTERVAL = 30
+
 
 def _slug(text):
     """Reduce free text to something safe for a folder name.
@@ -29,3 +35,12 @@ def folder_name(started, name):
     stamp = datetime.fromtimestamp(started).strftime("%Y-%m-%d_%H-%M-%S")
     slug = _slug(name)
     return f"{stamp}_{slug}" if slug else stamp
+
+
+def clamp_interval(value):
+    """Coerce a client-supplied interval into the supported range."""
+    try:
+        n = int(float(value))
+    except (TypeError, ValueError):
+        return DEFAULT_INTERVAL
+    return max(MIN_INTERVAL, min(MAX_INTERVAL, n))
