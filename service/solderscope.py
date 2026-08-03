@@ -23,10 +23,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 
+import session
+
 MEDIA_ROOT = Path(os.environ.get("SOLDERSCOPE_MEDIA", "/home/master/solderscope-media"))
 PHOTO_DIR = MEDIA_ROOT / "photos"
 VIDEO_DIR = MEDIA_ROOT / "recordings"
 THUMB_DIR = MEDIA_ROOT / "thumbs"
+SESSION_DIR = PHOTO_DIR / "sessions"
+SESSION_THUMB_DIR = THUMB_DIR / "sessions"
 THUMB_MAX = 400          # px on the long edge
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
@@ -173,22 +177,196 @@ def _release_when_ready():
         _capture_lock.release()
 
 
-def _thumb_path(photo: Path) -> Path:
-    return THUMB_DIR / (photo.stem + ".jpg")
+# ---------- interval sessions ----------
+#
+# A session holds _capture_lock for its whole lifetime, so the existing "a
+# capture is already running" path covers every conflict: a manual photo during
+# a session, a second session, or a session started mid-capture.
+
+_session_state = None            # session.State while one runs, else None
+_session_stop = None             # threading.Event to request a stop
+_session_lock = threading.Lock() # guards the two above
 
 
-def make_thumb(photo: Path):
+class _Clock:
+    """Real time source for session.run_loop."""
+    time = staticmethod(time.time)
+
+    @staticmethod
+    def wait(event, timeout):
+        return event.wait(timeout)
+
+
+def _session_capture(folder, stamp):
+    """Take one session frame. Raises on failure -- run_loop counts the streak.
+
+    Same resolution, quality and orientation as a manual still, so session
+    frames and single shots are directly comparable.
+    """
+    target = folder / f"{stamp}.jpg"
+    cmd = ["rpicam-still", "-o", str(target),
+           "--width", str(STILL_WIDTH), "--height", str(STILL_HEIGHT),
+           "-q", "95", "-n", "-t", "500"]
+    cmd += _orientation_flags()
+    try:
+        r = _run(cmd, timeout=90)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Capture timed out")
+    if not target.exists():
+        err = (r.stderr or r.stdout or "").strip().splitlines()
+        raise RuntimeError(err[-1] if err else "Capture failed")
+    make_thumb(target, SESSION_THUMB_DIR / folder.name)
+    return target.name
+
+
+def _free_bytes():
+    """Free space for the disk floor.
+
+    run_loop tolerates a failed capture but not a failed free_bytes(), which
+    would end the session as "error". A transient statvfs failure should not
+    outrank a running job, so report plenty of room and let the next tick
+    re-check: the floor exists to catch a filling card over minutes, not to
+    react to one bad stat call.
+
+    Finite rather than float("inf"): this value reaches /api/session as
+    free_gb, and json.dumps writes a bare Infinity token that JSON.parse
+    rejects.
+    """
+    try:
+        return shutil.disk_usage(MEDIA_ROOT if MEDIA_ROOT.exists() else "/").free
+    except OSError:
+        return 1 << 60
+
+
+def start_session(name, interval):
+    """Stop the stream, hand the sensor to a session thread.
+
+    Returns (ok, payload). Two things must survive every path out of here: the
+    capture lock must not leak, and MediaMTX must not stay stopped. The lock is
+    handed to the session thread only once that thread is actually running.
+    """
+    global _session_state, _session_stop
+
+    # Checked before taking the lock, so the reject path owns nothing and has
+    # nothing to unwind. Doing it inside the try below would make the early
+    # return trip the cleanup and clear a *running* session's state.
+    with _session_lock:
+        if _session_state is not None:
+            return False, {"error": "A session is already running"}
+
+    if not _capture_lock.acquire(blocking=False):
+        # Also covers the window where a session has just finished but
+        # _release_when_ready still holds the lock waiting for the stream.
+        return False, {"error": "A capture is already running"}
+
+    handed_off = False        # True once the session thread owns the lock
+    was_active = False
+    try:
+        iv = session.clamp_interval(interval)
+        state = session.State(name=name or "", interval=iv, started=int(time.time()))
+        stop = threading.Event()
+        with _session_lock:
+            _session_state, _session_stop = state, stop
+
+        was_active = _mtx_active()
+        if was_active:
+            _systemctl("stop")
+            time.sleep(0.3)      # brief settle, as in capture_still
+
+        try:
+            threading.Thread(target=_session_thread, args=(state, stop), daemon=True).start()
+        except (RuntimeError, OSError) as e:
+            # Out of threads on a 416 MB box, or systemd refused the stop.
+            # The finally below still unwinds; the operator needs a JSON error
+            # rather than a dropped connection.
+            return False, {"error": f"Could not start the session: {e}"}
+        handed_off = True
+        with _session_lock:
+            return True, _session_payload(state)
+    finally:
+        if not handed_off:
+            # Nothing owns the sensor now, so undo the claim in full: clear the
+            # state we published, restart the stream if we stopped it, and free
+            # the lock, or captures stay blocked until the service restarts.
+            with _session_lock:
+                _session_state = _session_stop = None
+            if was_active:
+                _systemctl("start")
+            _capture_lock.release()
+
+
+def _session_thread(state, stop):
+    """Run the loop, then always restore the stream and free the sensor."""
+    global _session_state, _session_stop
+    try:
+        session.run_loop(state=state, sessions_root=SESSION_DIR,
+                         capture=_session_capture, free_bytes=_free_bytes,
+                         clock=_Clock, stop_event=stop)
+    except Exception as e:
+        print(f"session failed: {e}", flush=True)
+    finally:
+        with _session_lock:
+            _session_state = _session_stop = None
+        # Unconditional, unlike capture_still's was_active guard: a session is
+        # long enough that "leave the stream as I found it" is worth less than
+        # "the operator always gets their live view back afterwards".
+        _systemctl("start")
+        # Same handover as capture_still: the lock is freed only once the
+        # stream serves again, so nothing races a half-started MediaMTX.
+        try:
+            threading.Thread(target=_release_when_ready, daemon=True).start()
+        except (RuntimeError, OSError):
+            # Out of threads. Release here instead, or the lock is never freed
+            # and every later capture is refused until the service restarts.
+            _capture_lock.release()
+
+
+def stop_session():
+    """Ask a running session to end at its next check."""
+    with _session_lock:
+        state, stop = _session_state, _session_stop
+        if state is None:
+            return False, {"error": "No session is running"}
+        stop.set()
+        # Built under the lock: the capture loop mutates State's fields, and
+        # session.State does no locking of its own.
+        return True, _session_payload(state)
+
+
+def _session_payload(state):
+    """Shape a State for the API. Callers hold _session_lock."""
+    if state is None:
+        return {"running": False}
+    doc = state.as_json()
+    doc["running"] = state.running
+    doc["elapsed"] = int(time.time()) - state.started
+    doc["free_gb"] = round(_free_bytes() / 1e9, 1)
+    if state.last_frame:
+        doc["last_url"] = f"/media/photos/sessions/{state.folder}/{state.last_frame}"
+    return doc
+
+
+def session_status():
+    with _session_lock:
+        return _session_payload(_session_state)
+
+
+def _thumb_path(photo: Path, dest: Path = None) -> Path:
+    return (dest or THUMB_DIR) / (photo.stem + ".jpg")
+
+
+def make_thumb(photo: Path, dest: Path = None):
     """Create a gallery thumbnail, reusing an up-to-date one.
 
     Uses PIL's draft mode: the JPEG decoder scales while decoding, so a 12 MP
     frame becomes a thumbnail in ~2s instead of ~20s on a Zero 2 W. Without
     thumbnails the gallery pulls several 4 MB originals just to show previews.
     """
-    thumb = _thumb_path(photo)
+    thumb = _thumb_path(photo, dest)
     try:
         if thumb.exists() and thumb.stat().st_mtime >= photo.stat().st_mtime:
             return thumb
-        THUMB_DIR.mkdir(parents=True, exist_ok=True)
+        (dest or THUMB_DIR).mkdir(parents=True, exist_ok=True)
         from PIL import Image
         with Image.open(photo) as im:
             im.draft("RGB", (THUMB_MAX, THUMB_MAX))
@@ -208,10 +386,10 @@ def make_thumb(photo: Path):
         return None                     # gallery falls back to the original
 
 
-def _thumbs_in_background(paths):
+def _thumbs_in_background(paths, dest=None):
     def work():
         for p in paths:
-            make_thumb(p)
+            make_thumb(p, dest)
     threading.Thread(target=work, daemon=True).start()
 
 
@@ -237,11 +415,7 @@ def _orientation_flags():
     return flags
 
 
-def _slug(text):
-    if not isinstance(text, str):
-        text = ""                    # JSON may hand us a number or a list
-    keep = [c if (c.isalnum() or c in "-_") else "-" for c in text.strip()]
-    return "".join(keep)[:40].strip("-")
+_slug = session.slug          # one definition, two callers
 
 
 def _mtx_api(method, path, body=None):
@@ -315,6 +489,32 @@ def list_media():
     return {"photos": photos, "videos": videos}
 
 
+def list_session_frames(folder_name):
+    """Frames of one session, newest first, shaped like list_media()'s photos."""
+    folder = session.resolve_folder(SESSION_DIR, folder_name)
+    if folder is None:
+        return None
+    thumbs = SESSION_THUMB_DIR / folder.name
+    out, missing = [], []
+    for p in _by_mtime(folder.glob("*.jpg")):
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        try:
+            fresh = _thumb_path(p, thumbs).stat().st_mtime >= st.st_mtime
+        except OSError:
+            fresh = False
+        if not fresh:
+            missing.append(p)
+        out.append({"name": p.name, "size": st.st_size, "mtime": int(st.st_mtime),
+                    "url": f"/media/photos/sessions/{folder.name}/{p.name}",
+                    "thumb": f"/thumb-session/{folder.name}/{p.name}"})
+    if missing:
+        _thumbs_in_background(missing, thumbs)
+    return out
+
+
 def delete_media(rel):
     """Delete one photo or recording below MEDIA_ROOT."""
     if not rel:
@@ -328,12 +528,38 @@ def delete_media(rel):
         return False, {"error": "file type not allowed"}
     if not target.is_file():
         return False, {"error": "file not found"}
+    # A session frame's thumbnail lives beside its session, not in the flat
+    # thumb dir. Without this a deleted frame orphans its own thumbnail and
+    # takes out the identically named one belonging to a manual photo -- both
+    # are named after the capture time, so a collision is ordinary.
+    try:
+        dest = SESSION_THUMB_DIR / target.relative_to(SESSION_DIR).parent
+    except ValueError:
+        dest = None                  # a flat photo: _thumb_path defaults to THUMB_DIR
     try:
         target.unlink()
-        _thumb_path(target).unlink(missing_ok=True)
+        _thumb_path(target, dest).unlink(missing_ok=True)
     except OSError as e:
         return False, {"error": f"delete failed: {e}"}
     return True, {"deleted": target.name}
+
+
+def delete_session(folder_name):
+    """Delete a whole session: its frames, its session.json, its thumbnails."""
+    folder = session.resolve_folder(SESSION_DIR, folder_name)
+    if folder is None:
+        return False, {"error": "session not found"}
+    with _session_lock:
+        # The running session is still writing into this folder, and its
+        # session.json is the deliverable. Make the operator stop it first.
+        if _session_state is not None and _session_state.folder == folder.name:
+            return False, {"error": "That session is still running"}
+    try:
+        shutil.rmtree(folder)
+        shutil.rmtree(SESSION_THUMB_DIR / folder.name, ignore_errors=True)
+    except OSError as e:
+        return False, {"error": f"delete failed: {e}"}
+    return True, {"deleted": folder.name}
 
 
 def disk_info():
@@ -423,6 +649,7 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/status":
             self._json({"stream_active": _mtx_active(),
                         "recording": recording_state(),
+                        "session": session_status(),
                         "disk": disk_info()})
         elif route == "/api/stream-ready":
             # "Service is running" is not the same as "stream is serving":
@@ -432,6 +659,30 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ready": _stream_ready()})
         elif route == "/api/media":
             self._json(list_media())
+        elif route == "/api/session":
+            self._json(session_status())
+        elif route == "/api/sessions":
+            self._json({"sessions": session.list_sessions(SESSION_DIR)})
+        elif route == "/api/session-frames":
+            frames = list_session_frames((parse_qs(u.query).get("id") or [""])[0])
+            if frames is None:
+                self._json({"error": "session not found"}, 404)
+            else:
+                self._json({"frames": frames})
+        elif route.startswith("/thumb-session/"):
+            rel = unquote(route[len("/thumb-session/"):])
+            fname, _, photo_name = rel.partition("/")
+            folder = session.resolve_folder(SESSION_DIR, fname)
+            # resolve_folder guards the folder half; photo_name must stay a bare
+            # filename so it cannot climb back out with a ".." of its own. ".."
+            # alone carries no separator but still names the parent, and only
+            # resolves to a harmless 404 by accident -- reject it outright.
+            if folder is None or photo_name in ("", ".", "..") or "/" in photo_name:
+                self._json({"error": "forbidden"}, 403)
+                return
+            photo = folder / photo_name
+            t = make_thumb(photo, SESSION_THUMB_DIR / folder.name)
+            self._file(t or photo, "image/jpeg")   # fall back to the original
         elif route.startswith("/thumb/"):
             name = unquote(route[len("/thumb/"):])
             photo = (PHOTO_DIR / name).resolve()
@@ -474,10 +725,21 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path == "/api/save-annotated":
             ok, payload = self._save_annotated(body)
             self._json(payload, 200 if ok else 500)
+        elif u.path == "/api/session/start":
+            ok, payload = start_session(body.get("name"), body.get("interval"))
+            # 409: the sensor is busy, which is a conflict the operator can
+            # resolve by stopping what is running, not a server fault.
+            self._json(payload, 200 if ok else 409)
+        elif u.path == "/api/session/stop":
+            ok, payload = stop_session()
+            self._json(payload, 200 if ok else 404)
         elif u.path == "/api/delete":
             rel = body.get("path") or ""
-            rel = rel[len("/media/"):] if rel.startswith("/media/") else rel
-            ok, payload = delete_media(unquote(rel))
+            if rel.startswith("session:"):
+                ok, payload = delete_session(rel[len("session:"):])
+            else:
+                rel = rel[len("/media/"):] if rel.startswith("/media/") else rel
+                ok, payload = delete_media(unquote(rel))
             self._json(payload, 200 if ok else 400)
         else:
             self._json({"error": "not found"}, 404)
@@ -503,7 +765,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    for d in (PHOTO_DIR, VIDEO_DIR, THUMB_DIR):
+    for d in (PHOTO_DIR, VIDEO_DIR, THUMB_DIR, SESSION_DIR, SESSION_THUMB_DIR):
         d.mkdir(parents=True, exist_ok=True)
     srv = ThreadingHTTPServer(("0.0.0.0", LISTEN_PORT), Handler)
     print(f"solderscope capture service on :{LISTEN_PORT}, media at {MEDIA_ROOT}", flush=True)

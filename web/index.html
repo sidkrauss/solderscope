@@ -34,6 +34,28 @@
       <button id="photo" class="primary">📷 Photo (12 MP)</button>
       <button id="record">⏺ Start recording</button>
     </div>
+
+    <div class="controls sessionControls" id="sessionIdle">
+      <input id="sessionName" type="text" placeholder="Session name (optional)" autocomplete="off">
+      <label class="intervalWrap">
+        <input id="sessionInterval" type="number" min="5" max="3600" value="30" inputmode="numeric">
+        <span>s</span>
+      </label>
+      <button id="sessionStart">▶ Start session</button>
+    </div>
+
+    <!-- Shown while a session runs; the stream is stopped, so the last frame
+         stands in for the live view. -->
+    <div class="sessionPanel hidden" id="sessionPanel">
+      <img id="sessionShot" alt="Last captured frame">
+      <div class="sessionInfo">
+        <b id="sessionTitle">Session</b>
+        <span id="sessionStats">0 photos · 0:00</span>
+        <span id="sessionError" class="err"></span>
+      </div>
+      <button id="sessionStop" class="recording">⏹ Stop session</button>
+    </div>
+
     <p id="hint" class="hint"></p>
   </section>
 
@@ -41,9 +63,11 @@
     <div class="tabs">
       <button class="tab active" data-tab="photos">Photos</button>
       <button class="tab" data-tab="videos">Videos</button>
+      <button class="tab" data-tab="sessions">Sessions</button>
     </div>
     <div id="photos" class="grid"></div>
     <div id="videos" class="grid hidden"></div>
+    <div id="sessions" class="sessionList hidden"></div>
   </section>
 </main>
 

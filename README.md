@@ -23,6 +23,8 @@ actual work happens through the binocular; the stream is there to document it.
 * **Annotation in the browser**: arrows, boxes, text, freehand. The original is
   never touched; annotations go into a copy.
 * **Job context**: whatever you type in the job field becomes part of the filename.
+* **Interval sessions**: document a whole job as timed stills into a folder of
+  its own, with the stream stopped for the duration.
 
 ## What it looks like
 
@@ -42,6 +44,21 @@ Cropping down to what matters. Existing annotations move with the crop:
 The finished result, as the customer receives it:
 
 ![Example of an annotated defect image](docs/example-annotated.jpg)
+
+An interval session running. There is no stream while one does, so the last
+captured frame stands in for the live view, which is how you notice the board
+has drifted out of frame:
+
+![Running interval session with the last captured frame](docs/screenshots/05-session-running.jpg)
+
+Finished sessions get their own tab, one card each:
+
+![Sessions tab listing a finished session](docs/screenshots/06-sessions-tab.jpg)
+
+Opening one shows its frames, ten seconds apart. Clicking any of them opens the
+same annotation editor:
+
+![Frames of one session in the gallery grid](docs/screenshots/07-session-frames.jpg)
 
 ## Hardware
 
@@ -119,6 +136,51 @@ Open the web UI at **`http://<pi-host>`** (port 80, no port number needed).
   video bar is deliberately hidden, since a scrubber and a running timer are
   meaningless on a live stream.
 * **Tap an image** to open the annotation editor, described below.
+
+### Interval sessions
+
+For documenting a whole job rather than a single defect. Enter a name and an
+interval, press **Start session**, and the service takes the sensor for itself:
+MediaMTX is stopped once at the start and started once at the end, so a frame
+costs only the capture instead of the ~14 seconds of handover a single photo
+needs. That is what makes a 10 second interval practical at all.
+
+While a session runs the live view is replaced by the last captured frame. There
+is no stream to show, and the still is the more useful thing anyway: it is how
+you notice the board has drifted out of frame before you lose an hour of
+documentation to it. The photo and record buttons are disabled for the duration,
+since a session holds the sensor and both could only fail on the capture lock.
+
+Frames land in a folder of their own, listed under the **Sessions** tab:
+
+```
+photos/sessions/2026-08-03_14-31-05_Board-rework/
+    2026-08-03_14-31-05.jpg
+    2026-08-03_14-31-15.jpg
+    ...
+    session.json
+```
+
+`session.json` is rewritten after every frame, so a session cut short by a power
+cut still describes what it captured. Opening a session shows its frames in the
+usual grid, and clicking one opens the annotation editor as normal. The flat
+Photos tab keeps showing only manual shots, so a 200 frame session cannot bury
+them.
+
+The interval is clamped to 5..3600 seconds. Below about five seconds a Zero 2 W
+cannot finish a 12 MP capture and its thumbnail before the next frame is due, so
+the schedule would fall permanently behind. Ticks are anchored to the session
+start rather than to the end of the last capture, which keeps a nominal 10
+second interval at 10 seconds instead of letting the capture time accumulate
+into the gap. Measured on the device: 9, 10, 10, 10 seconds across five frames.
+
+A session ends when you press stop, when free disk falls below 2 GB, or after
+three consecutive failed captures. One bad frame does not end a session; three
+in a row do. The reason is recorded in `session.json` and shown on the session
+card, which is what tells you later why a session stopped after 40 minutes. At
+about 4 MB per frame a 10 second interval writes roughly 1.4 GB per hour, which
+is why the disk floor exists at all: without it a session left running overnight
+fills the card and takes the whole box down.
 
 ### Annotation editor
 
@@ -219,6 +281,19 @@ anything from 300 to 1500 ms.
 The trade-off is acceptable here precisely because the work happens through the
 binocular and the stream is documentation only.
 
+That same reasoning is what makes interval sessions worth having. The handover
+is a fixed cost per photo, so the way to make timed capture practical is not to
+make it faster but to pay it once for the whole session instead of once per
+frame. Stopping the stream for an hour sounds drastic and costs nothing: the
+operator is looking through the binocular the entire time.
+
+The scheduling, the stop conditions and the folder layout live in `session.py`
+with the camera, the disk and the clock passed in as arguments. That is not
+architecture for its own sake -- it is what lets the interesting decisions be
+tested on a laptop with no camera attached, including ones that are awkward to
+stage on real hardware, such as a filling disk or a capture that keeps failing.
+The parts that genuinely need the sensor are verified on the device instead.
+
 ### Sensor mode: 2028×1520 instead of 4056×3040
 
 The stream originally ran with `rpiCameraMode: "4056:3040:12:P"`, reading the
@@ -265,9 +340,12 @@ config/
   50-solderscope.rules    polkit rule scoped to one unit, for the sensor handover
 service/
   solderscope.py          capture service: stills, recording control, web server
+  session.py              interval sessions: scheduling, state, session.json
   solderscope.service     systemd unit
 web/
   index.html app.js style.css    web UI including the annotation editor
+tests/
+  test_session.py      unit tests for session.py, no camera needed
 scripts/
   bootstrap-pi.sh      first-time setup of a fresh Pi
   deploy.sh            deploy and update the application
