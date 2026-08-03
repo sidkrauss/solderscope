@@ -269,7 +269,13 @@ def start_session(name, interval):
             _systemctl("stop")
             time.sleep(0.3)      # brief settle, as in capture_still
 
-        threading.Thread(target=_session_thread, args=(state, stop), daemon=True).start()
+        try:
+            threading.Thread(target=_session_thread, args=(state, stop), daemon=True).start()
+        except (RuntimeError, OSError) as e:
+            # Out of threads on a 416 MB box, or systemd refused the stop.
+            # The finally below still unwinds; the operator needs a JSON error
+            # rather than a dropped connection.
+            return False, {"error": f"Could not start the session: {e}"}
         handed_off = True
         with _session_lock:
             return True, _session_payload(state)
@@ -297,6 +303,9 @@ def _session_thread(state, stop):
     finally:
         with _session_lock:
             _session_state = _session_stop = None
+        # Unconditional, unlike capture_still's was_active guard: a session is
+        # long enough that "leave the stream as I found it" is worth less than
+        # "the operator always gets their live view back afterwards".
         _systemctl("start")
         # Same handover as capture_still: the lock is freed only once the
         # stream serves again, so nothing races a half-started MediaMTX.
@@ -510,9 +519,17 @@ def delete_media(rel):
         return False, {"error": "file type not allowed"}
     if not target.is_file():
         return False, {"error": "file not found"}
+    # A session frame's thumbnail lives beside its session, not in the flat
+    # thumb dir. Without this a deleted frame orphans its own thumbnail and
+    # takes out the identically named one belonging to a manual photo -- both
+    # are named after the capture time, so a collision is ordinary.
+    try:
+        dest = SESSION_THUMB_DIR / target.relative_to(SESSION_DIR).parent
+    except ValueError:
+        dest = None                  # a flat photo: _thumb_path defaults to THUMB_DIR
     try:
         target.unlink()
-        _thumb_path(target).unlink(missing_ok=True)
+        _thumb_path(target, dest).unlink(missing_ok=True)
     except OSError as e:
         return False, {"error": f"delete failed: {e}"}
     return True, {"deleted": target.name}
