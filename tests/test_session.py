@@ -50,6 +50,15 @@ def test_interval_accepts_a_numeric_string():
     assert session.clamp_interval("45") == 45
 
 
+def test_interval_survives_infinity():
+    # The value arrives as parsed JSON, so a client can hand us "inf" or a bare
+    # Infinity literal. int(float("inf")) raises OverflowError, not ValueError,
+    # so an uncaught one would surface as a 500 instead of a clamped interval.
+    assert session.clamp_interval(float("inf")) == session.DEFAULT_INTERVAL
+    assert session.clamp_interval(float("-inf")) == session.DEFAULT_INTERVAL
+    assert session.clamp_interval("inf") == session.DEFAULT_INTERVAL
+
+
 def test_next_tick_follows_the_fixed_schedule():
     # Ticks are anchored to the start time, not to when the last capture ended,
     # so a slow capture does not push every later frame further out.

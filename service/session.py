@@ -42,7 +42,9 @@ def clamp_interval(value):
     """Coerce a client-supplied interval into the supported range."""
     try:
         n = int(float(value))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError is not hypothetical: the value arrives as parsed JSON,
+        # and int(float("inf")) raises it rather than ValueError.
         return DEFAULT_INTERVAL
     return max(MIN_INTERVAL, min(MAX_INTERVAL, n))
 
