@@ -28,7 +28,7 @@ actual work happens through the binocular; the stream is there to document it.
 
 Every capture in one place, with size, timestamp, download and delete:
 
-![Gallery of photos and videos](docs/screenshots/02-galerie.jpg)
+![Gallery of photos and videos](docs/screenshots/02-gallery.jpg)
 
 Clicking an image opens the annotation editor, here with text, an ellipse, an
 arrow and numbered callouts:
@@ -37,7 +37,7 @@ arrow and numbered callouts:
 
 Cropping down to what matters. Existing annotations move with the crop:
 
-![Cropping inside the editor](docs/screenshots/04-zuschneiden.jpg)
+![Cropping inside the editor](docs/screenshots/04-crop.jpg)
 
 The finished result, as the customer receives it:
 
@@ -74,7 +74,7 @@ The finished result, as the customer receives it:
 
 ### The build
 
-<!-- Photo of the setup: docs/screenshots/00-aufbau.jpg -->
+<!-- Photo of the setup: docs/screenshots/00-build.jpg -->
 *(Photo of the full setup to follow.)*
 
 The HQ Camera and the Pi Zero 2 W share a single 3D printed enclosure with a
