@@ -27,11 +27,11 @@ DISK_FLOOR_BYTES = 2_000_000_000
 MAX_CONSECUTIVE_FAILURES = 3
 
 
-def _slug(text):
-    """Reduce free text to something safe for a folder name.
+def slug(text):
+    """Reduce free text to something safe for a filename or folder name.
 
-    Mirrors the slug rules in solderscope.py: keep alphanumerics, dash and
-    underscore, turn everything else into a dash.
+    Shared with solderscope.py, which uses it for the job prefix on manual
+    stills: JSON may hand us a number or a list, hence the isinstance guard.
     """
     if not isinstance(text, str):
         text = ""
@@ -42,8 +42,10 @@ def _slug(text):
 def folder_name(started, name):
     """Folder for one session: timestamp first so folders sort chronologically."""
     stamp = datetime.fromtimestamp(started).strftime("%Y-%m-%d_%H-%M-%S")
-    slug = _slug(name)
-    return f"{stamp}_{slug}" if slug else stamp
+    # Not named `slug`: that would shadow the module-level function above and
+    # make this line an UnboundLocalError.
+    piece = slug(name)
+    return f"{stamp}_{piece}" if piece else stamp
 
 
 def clamp_interval(value):
