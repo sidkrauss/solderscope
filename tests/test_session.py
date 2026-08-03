@@ -135,3 +135,31 @@ def test_as_json_carries_what_the_session_file_needs():
     assert doc["photos"] == 1
     assert doc["stop_reason"] == "running"
     assert doc["folder"] == st.folder
+
+
+def test_plenty_of_disk_and_no_failures_keeps_running():
+    st = session.State(name="", interval=10, started=1000)
+    assert session.stop_reason_for(st, free_bytes=20e9) is None
+
+
+def test_low_disk_stops_the_session():
+    st = session.State(name="", interval=10, started=1000)
+    assert session.stop_reason_for(st, free_bytes=1e9) == "disk"
+
+
+def test_three_consecutive_failures_stop_the_session():
+    st = session.State(name="", interval=10, started=1000)
+    for _ in range(2):
+        st.record_failure("boom")
+    assert session.stop_reason_for(st, free_bytes=20e9) is None
+    st.record_failure("boom")
+    assert session.stop_reason_for(st, free_bytes=20e9) == "error"
+
+
+def test_scattered_failures_do_not_stop_the_session():
+    # One bad frame must not end a forty-minute session.
+    st = session.State(name="", interval=10, started=1000)
+    for _ in range(5):
+        st.record_failure("boom")
+        st.record_frame("ok.jpg")
+    assert session.stop_reason_for(st, free_bytes=20e9) is None

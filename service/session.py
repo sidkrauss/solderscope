@@ -18,6 +18,11 @@ MIN_INTERVAL = 5
 MAX_INTERVAL = 3600
 DEFAULT_INTERVAL = 30
 
+# A 12 MP JPEG is ~4 MB, so a 10s interval writes ~1.4 GB/h. Without a floor a
+# session left running overnight fills the card and takes the whole box down.
+DISK_FLOOR_BYTES = 2_000_000_000
+MAX_CONSECUTIVE_FAILURES = 3
+
 
 def _slug(text):
     """Reduce free text to something safe for a folder name.
@@ -118,3 +123,16 @@ class State:
             "stop_reason": self.stop_reason,
             "last_error": self.last_error,
         }
+
+
+def stop_reason_for(state, free_bytes):
+    """Why the session should stop now, or None to carry on.
+
+    Checked before each capture rather than after, so the frame that would
+    cross the disk floor is never written.
+    """
+    if free_bytes < DISK_FLOOR_BYTES:
+        return "disk"
+    if state.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+        return "error"
+    return None
