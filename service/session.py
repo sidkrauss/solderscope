@@ -148,8 +148,13 @@ def resolve_folder(sessions_root, name):
     """
     if not name or not isinstance(name, str):
         return None
-    root = Path(sessions_root).resolve()
-    target = (root / name).resolve()
+    try:
+        root = Path(sessions_root).resolve()
+        target = (root / name).resolve()
+    except ValueError:
+        # unquote() turns %00 in a URL into a real null byte, and pathlib
+        # raises on one. Answering None keeps this a 404 rather than a 500.
+        return None
     if not str(target).startswith(str(root) + os.sep):
         return None
     if not target.is_dir():

@@ -187,6 +187,15 @@ def test_a_missing_or_empty_folder_name_is_refused(tmp_path):
     assert session.resolve_folder(root, "does-not-exist") is None
 
 
+def test_a_null_byte_in_the_name_is_refused(tmp_path):
+    # unquote() turns %00 in a URL into a real null byte, and pathlib raises
+    # ValueError on one. This function promises None rather than an exception,
+    # so the route above it answers 404 instead of a 500.
+    root = tmp_path / "sessions"
+    root.mkdir()
+    assert session.resolve_folder(root, "foo\x00bar") is None
+
+
 def test_a_file_masquerading_as_a_session_is_refused(tmp_path):
     root = tmp_path / "sessions"
     root.mkdir()
