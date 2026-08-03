@@ -45,6 +45,21 @@ The finished result, as the customer receives it:
 
 ![Example of an annotated defect image](docs/example-annotated.jpg)
 
+An interval session running. There is no stream while one does, so the last
+captured frame stands in for the live view, which is how you notice the board
+has drifted out of frame:
+
+![Running interval session with the last captured frame](docs/screenshots/05-session-running.jpg)
+
+Finished sessions get their own tab, one card each:
+
+![Sessions tab listing a finished session](docs/screenshots/06-sessions-tab.jpg)
+
+Opening one shows its frames, ten seconds apart. Clicking any of them opens the
+same annotation editor:
+
+![Frames of one session in the gallery grid](docs/screenshots/07-session-frames.jpg)
+
 ## Hardware
 
 | Part | Used here | Notes |
