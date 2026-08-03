@@ -10,7 +10,9 @@ what the folder is called -- testable without a camera attached.
 """
 
 import math
+import os
 from datetime import datetime
+from pathlib import Path
 
 # Below ~5s a Zero 2 W cannot finish a 12 MP capture plus its thumbnail before
 # the next tick is due, so the schedule would fall permanently behind.
@@ -136,3 +138,20 @@ def stop_reason_for(state, free_bytes):
     if state.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
         return "error"
     return None
+
+
+def resolve_folder(sessions_root, name):
+    """Turn a client-supplied session id into a path, or None if it is not one.
+
+    Same guard as delete_media() in solderscope.py: resolve first, then confirm
+    containment. A name is only ever used to build a path through here.
+    """
+    if not name or not isinstance(name, str):
+        return None
+    root = Path(sessions_root).resolve()
+    target = (root / name).resolve()
+    if not str(target).startswith(str(root) + os.sep):
+        return None
+    if not target.is_dir():
+        return None
+    return target

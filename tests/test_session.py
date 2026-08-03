@@ -163,3 +163,32 @@ def test_scattered_failures_do_not_stop_the_session():
         st.record_failure("boom")
         st.record_frame("ok.jpg")
     assert session.stop_reason_for(st, free_bytes=20e9) is None
+
+
+def test_resolving_a_session_folder_returns_the_path(tmp_path):
+    root = tmp_path / "sessions"
+    (root / "2026-08-03_14-31-05_job").mkdir(parents=True)
+    got = session.resolve_folder(root, "2026-08-03_14-31-05_job")
+    assert got == root / "2026-08-03_14-31-05_job"
+
+
+def test_traversal_out_of_the_sessions_root_is_refused(tmp_path):
+    root = tmp_path / "sessions"
+    root.mkdir()
+    (tmp_path / "secret").mkdir()
+    assert session.resolve_folder(root, "../secret") is None
+    assert session.resolve_folder(root, "/etc") is None
+
+
+def test_a_missing_or_empty_folder_name_is_refused(tmp_path):
+    root = tmp_path / "sessions"
+    root.mkdir()
+    assert session.resolve_folder(root, "") is None
+    assert session.resolve_folder(root, "does-not-exist") is None
+
+
+def test_a_file_masquerading_as_a_session_is_refused(tmp_path):
+    root = tmp_path / "sessions"
+    root.mkdir()
+    (root / "notafolder").write_text("x")
+    assert session.resolve_folder(root, "notafolder") is None
