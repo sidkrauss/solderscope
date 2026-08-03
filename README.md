@@ -1,6 +1,6 @@
 # solderscope
 
-Camera documentation for a soldering microscope: a live view on any phone,
+Camera-based documentation for a soldering microscope: a live view on any phone,
 tablet or desktop, full-resolution stills, video recording, and image annotation
 straight in the browser.
 
@@ -47,7 +47,7 @@ The finished result, as the customer receives it:
 
 | Part | Used here | Notes |
 |---|---|---|
-| Computer | Raspberry Pi Zero 2 W | 416 MB RAM. A Pi 4/5 would be more comfortable but is not required |
+| Computer | Raspberry Pi Zero 2 W | 512 MB, ~416 MB usable. A Pi 4/5 would be more comfortable but is not required |
 | Camera | Raspberry Pi HQ Camera (Sony IMX477), 12.3 MP | C/CS mount, no lens |
 | Microscope | SM-4TP stereo microscope, 7–45× (complete set, black) | Trinocular with photo tube, bought from eleshop |
 | Camera adapter | C-mount 0.5× (clamp type), eleshop | Reduction optics. **0.35× would be the better choice**, see below |
@@ -131,8 +131,8 @@ documentation. "Download" saves straight to whatever device you are holding.
 |---|---|---|
 | Arrow | `A` | |
 | Line | `L` | |
-| Rectangle | `R` | optionally filled |
-| Ellipse | `E` | optionally filled |
+| Rectangle | `R` | optionally shaded |
+| Ellipse | `E` | optionally shaded |
 | Freehand | `F` | |
 | Marker | `M` | semi-transparent, for highlighting |
 | Text | `T` | typed directly on the image, multi-line |
@@ -140,8 +140,12 @@ documentation. "Download" saves straight to whatever device you are holding.
 | Pixelate | `P` | for serial numbers and the like |
 | Crop | `K` | drag a region and confirm; annotations move with it |
 
-Six colours, a continuous stroke width, undo/redo (`Ctrl+Z` / `Ctrl+Y`), save
+Six colours, an adjustable stroke width, undo/redo (`Ctrl+Z` / `Ctrl+Y`), save
 with `Ctrl+S`, close with `Esc`. All of it works by touch, for use on a tablet.
+
+Shading a rectangle or an ellipse tints the area instead of covering it, so
+whatever you are pointing at stays visible underneath. The button only appears
+while one of those two tools is selected.
 
 Stroke width and font size scale with image size, so annotations stay legible
 once a 12 MP image is scaled down into a report.

@@ -106,7 +106,7 @@ def capture_still(job=None):
     capture itself fails -- never leave the operator without a live view.
     """
     if not _capture_lock.acquire(blocking=False):
-        return False, {"error": "Aufnahme läuft bereits"}
+        return False, {"error": "A capture is already running"}
 
     handed_off = False        # True once a background thread owns the lock
     try:
@@ -134,11 +134,11 @@ def capture_still(job=None):
             except subprocess.TimeoutExpired:
                 # Must not escape: the finally-block below still restores the
                 # stream, but the caller needs a JSON error, not a traceback.
-                return False, {"error": "Zeitüberschreitung bei der Aufnahme"}
+                return False, {"error": "Capture timed out"}
 
             if not target.exists():
                 err = (r.stderr or r.stdout or "").strip().splitlines()
-                return False, {"error": "Aufnahme fehlgeschlagen",
+                return False, {"error": "Capture failed",
                                "detail": err[-3:] if err else []}
 
             make_thumb(target)      # ready before the gallery reloads
@@ -255,7 +255,7 @@ def set_recording(enabled):
                     {"record": bool(enabled)})
     if code.startswith("2"):
         return True, {"recording": bool(enabled)}
-    return False, {"error": f"MediaMTX API antwortete {code or 'nicht'}"}
+    return False, {"error": f"MediaMTX API returned {code or 'nothing'}"}
 
 
 def recording_state():
@@ -312,21 +312,21 @@ def list_media():
 def delete_media(rel):
     """Delete one photo or recording below MEDIA_ROOT."""
     if not rel:
-        return False, {"error": "keine Datei angegeben"}
+        return False, {"error": "no file given"}
     target = (MEDIA_ROOT / rel).resolve()
     root = MEDIA_ROOT.resolve()
     # Path traversal guard: resolve() first, then confirm containment.
     if not str(target).startswith(str(root) + os.sep):
-        return False, {"error": "ungültiger Pfad"}
+        return False, {"error": "invalid path"}
     if target.suffix.lower() not in (".jpg", ".jpeg", ".mp4"):
-        return False, {"error": "nicht erlaubter Dateityp"}
+        return False, {"error": "file type not allowed"}
     if not target.is_file():
-        return False, {"error": "Datei nicht gefunden"}
+        return False, {"error": "file not found"}
     try:
         target.unlink()
         _thumb_path(target).unlink(missing_ok=True)
     except OSError as e:
-        return False, {"error": f"Löschen fehlgeschlagen: {e}"}
+        return False, {"error": f"delete failed: {e}"}
     return True, {"deleted": target.name}
 
 
@@ -450,7 +450,7 @@ class Handler(BaseHTTPRequestHandler):
         qs = parse_qs(u.query)
         length = int(self.headers.get("Content-Length") or 0)
         if length > 40 * 1024 * 1024:      # an annotated 12 MP JPEG is ~5 MB
-            self._json({"error": "Anfrage zu groß"}, 413)
+            self._json({"error": "request too large"}, 413)
             return
         raw = self.rfile.read(length) if length else b"{}"
         try:
@@ -480,7 +480,7 @@ class Handler(BaseHTTPRequestHandler):
         import base64
         data = (body.get("dataUrl") or "").split(",", 1)
         if len(data) != 2:
-            return False, {"error": "kein Bild übergeben"}
+            return False, {"error": "no image supplied"}
         source = _slug(Path(body.get("source") or "bild").stem)
         PHOTO_DIR.mkdir(parents=True, exist_ok=True)
         target = PHOTO_DIR / f"{source}_annot.jpg"
@@ -491,7 +491,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             target.write_bytes(base64.b64decode(data[1]))
         except Exception as e:
-            return False, {"error": f"Speichern fehlgeschlagen: {e}"}
+            return False, {"error": f"save failed: {e}"}
         return True, {"file": target.name, "url": f"/media/photos/{target.name}"}
 
 

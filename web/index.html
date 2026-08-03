@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>solderscope — Lötmikroskop</title>
+<title>solderscope</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
   <h1>solderscope</h1>
   <div class="status">
     <span id="dot" class="dot"></span>
-    <span id="statusText">verbinde…</span>
+    <span id="statusText">connecting…</span>
     <span id="disk" class="disk"></span>
   </div>
 </header>
@@ -21,25 +21,25 @@
   <section class="live">
     <div class="frame">
       <iframe id="player" src="" allow="autoplay; fullscreen"></iframe>
-      <button id="fullscreen" title="Vollbild">⛶</button>
+      <button id="fullscreen" title="Fullscreen">⛶</button>
       <div id="busy" class="busy hidden">
         <div class="spinner"></div>
-        <p id="busyText">Foto wird aufgenommen…</p>
-        <small>Der Stream kommt gleich von selbst zurück.</small>
+        <p id="busyText">Taking photo…</p>
+        <small>The stream comes back on its own.</small>
       </div>
     </div>
 
     <div class="controls">
-      <input id="job" type="text" placeholder="Auftrag / Kunde (optional)" autocomplete="off">
-      <button id="photo" class="primary">📷 Foto (12 MP)</button>
-      <button id="record">⏺ Aufnahme starten</button>
+      <input id="job" type="text" placeholder="Job / customer (optional)" autocomplete="off">
+      <button id="photo" class="primary">📷 Photo (12 MP)</button>
+      <button id="record">⏺ Start recording</button>
     </div>
     <p id="hint" class="hint"></p>
   </section>
 
   <section class="gallery">
     <div class="tabs">
-      <button class="tab active" data-tab="photos">Fotos</button>
+      <button class="tab active" data-tab="photos">Photos</button>
       <button class="tab" data-tab="videos">Videos</button>
     </div>
     <div id="photos" class="grid"></div>
@@ -51,21 +51,21 @@
 <div id="editor" class="overlay hidden">
   <div class="editorBar">
     <div class="group tools">
-      <button class="tool active" data-tool="arrow" title="Pfeil (A)">↗</button>
-      <button class="tool" data-tool="line" title="Linie (L)">╱</button>
-      <button class="tool" data-tool="rect" title="Rechteck (R)">▭</button>
+      <button class="tool active" data-tool="arrow" title="Arrow (A)">↗</button>
+      <button class="tool" data-tool="line" title="Line (L)">╱</button>
+      <button class="tool" data-tool="rect" title="Rectangle (R)">▭</button>
       <button class="tool" data-tool="ellipse" title="Ellipse (E)">◯</button>
-      <button class="tool" data-tool="free" title="Freihand (F)">✎</button>
+      <button class="tool" data-tool="free" title="Freehand (F)">✎</button>
       <button class="tool" data-tool="marker" title="Marker (M)">▬</button>
       <button class="tool" data-tool="text" title="Text (T)">T</button>
-      <button class="tool" data-tool="counter" title="Nummerierung (C)">①</button>
-      <button class="tool" data-tool="pixelate" title="Verpixeln (P)">▒</button>
-      <button class="tool" data-tool="crop" title="Zuschneiden (K)">⛶</button>
+      <button class="tool" data-tool="counter" title="Numbered callout (C)">①</button>
+      <button class="tool" data-tool="pixelate" title="Pixelate (P)">▒</button>
+      <button class="tool" data-tool="crop" title="Crop (K)">⛶</button>
     </div>
 
     <div class="group cropActions hidden" id="cropActions">
-      <button id="cropApply" class="primary">Zuschneiden</button>
-      <button id="cropCancel">Abbrechen</button>
+      <button id="cropApply" class="primary">Crop</button>
+      <button id="cropCancel">Cancel</button>
     </div>
 
     <span class="sep"></span>
@@ -82,27 +82,29 @@
     <span class="sep"></span>
 
     <div class="group">
-      <label class="rangeWrap" title="Strichstärke">
+      <label class="rangeWrap" title="Stroke width">
         <span class="rangeIcon">●</span>
         <input id="width" type="range" min="1" max="8" value="3">
       </label>
-      <button id="fill" title="Formen füllen">Füllung</button>
+      <!-- Shown only while a shape tool is active, so it cannot be mistaken
+           for a global setting. -->
+      <button id="fill" class="hidden" title="Shade the inside of the shape">◐ Shade</button>
     </div>
 
     <span class="sep"></span>
 
     <div class="group">
-      <button id="undo" title="Rückgängig (Strg+Z)">↶</button>
-      <button id="redo" title="Wiederherstellen (Strg+Y)">↷</button>
-      <button id="clear" title="Alle Markierungen entfernen">Leeren</button>
+      <button id="undo" title="Undo (Ctrl+Z)">↶</button>
+      <button id="redo" title="Redo (Ctrl+Y)">↷</button>
+      <button id="clear" title="Remove all annotations">Clear</button>
     </div>
 
     <span class="grow"></span>
 
     <div class="group">
-      <button id="download" title="Herunterladen">⤓ Laden</button>
-      <button id="save" class="primary">Speichern</button>
-      <button id="close" title="Schließen (Esc)">✕</button>
+      <button id="download" title="Download to this device">⤓ Download</button>
+      <button id="save" class="primary">Save</button>
+      <button id="close" title="Close (Esc)">✕</button>
     </div>
   </div>
 

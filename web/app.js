@@ -94,14 +94,14 @@ async function refreshStatus() {
     const s = await api("/api/status");
     recording = s.recording;
     $("dot").className = "dot " + (s.recording ? "rec" : s.stream_active ? "live" : "off");
-    $("statusText").textContent = s.recording ? "Aufnahme läuft"
-      : s.stream_active ? "Live" : "Stream aus";
-    $("disk").textContent = s.disk ? `· ${s.disk.free_gb} GB frei` : "";
-    $("record").textContent = recording ? "⏹ Aufnahme stoppen" : "⏺ Aufnahme starten";
+    $("statusText").textContent = s.recording ? "Recording"
+      : s.stream_active ? "Live" : "Stream down";
+    $("disk").textContent = s.disk ? `· ${s.disk.free_gb} GB free` : "";
+    $("record").textContent = recording ? "⏹ Stop recording" : "⏺ Start recording";
     $("record").classList.toggle("recording", recording);
   } catch {
     $("dot").className = "dot off";
-    $("statusText").textContent = "keine Verbindung";
+    $("statusText").textContent = "no connection";
   }
 }
 
@@ -109,7 +109,7 @@ async function refreshStatus() {
 
 $("photo").onclick = async () => {
   if (busy) return;
-  setBusy(true, "Foto wird aufgenommen…");
+  setBusy(true, "Taking photo…");
   hint("");
   try {
     const job = $("job").value.trim();
@@ -118,10 +118,10 @@ $("photo").onclick = async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ job }),
     });
-    hint(`Gespeichert: ${res.file}`, "ok");
+    hint(`Saved: ${res.file}`, "ok");
     await loadMedia();
   } catch (e) {
-    hint(`Fehler: ${e.message}`, "err");
+    hint(`Error: ${e.message}`, "err");
   } finally {
     setBusy(false);
     refreshStatus();
@@ -138,10 +138,10 @@ $("record").onclick = async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: !recording }),
     });
-    hint(recording ? "Aufnahme gestoppt" : "Aufnahme gestartet", "ok");
+    hint(recording ? "Recording stopped" : "Recording started", "ok");
     setTimeout(loadMedia, 1500);
   } catch (e) {
-    hint(`Fehler: ${e.message}`, "err");
+    hint(`Error: ${e.message}`, "err");
   } finally {
     $("record").disabled = false;
     refreshStatus();
@@ -151,7 +151,7 @@ $("record").onclick = async () => {
 /* ---------- gallery ---------- */
 
 const fmtSize = (b) => b > 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.round(b / 1e3) + " kB";
-const fmtTime = (t) => new Date(t * 1000).toLocaleString("de-DE",
+const fmtTime = (t) => new Date(t * 1000).toLocaleString(undefined,
   { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 async function loadMedia() {
@@ -164,7 +164,7 @@ async function loadMedia() {
 
 function render(host, items, isVideo) {
   if (!items.length) {
-    host.innerHTML = `<p class="empty">Noch nichts aufgenommen.</p>`;
+    host.innerHTML = `<p class="empty">Nothing captured yet.</p>`;
     return;
   }
   host.innerHTML = items.map((it) => `
@@ -178,8 +178,8 @@ function render(host, items, isVideo) {
       <div class="meta">
         <span>${fmtTime(it.mtime)}</span>
         <span class="acts">
-          <a href="${it.url}" download title="Herunterladen">⤓</a>
-          <button class="del" data-path="${it.url}" data-name="${it.name}" title="Löschen">🗑</button>
+          <a href="${it.url}" download title="Download">⤓</a>
+          <button class="del" data-path="${it.url}" data-name="${it.name}" title="Delete">🗑</button>
         </span>
       </div>
     </div>`).join("");
@@ -201,7 +201,7 @@ function askDelete(path, name) {
   if (!btn) return;
   if (btn.dataset.armed === "1") { doDelete(path, name); return; }
   btn.dataset.armed = "1";
-  btn.textContent = "wirklich?";
+  btn.textContent = "sure?";
   btn.classList.add("armed");
   setTimeout(() => {
     if (btn.dataset.armed === "1") {
@@ -219,11 +219,11 @@ async function doDelete(path, name) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path }),
     });
-    hint(`Gelöscht: ${name}`, "ok");
+    hint(`Deleted: ${name}`, "ok");
     await loadMedia();
     refreshStatus();
   } catch (e) {
-    hint(`Löschen fehlgeschlagen: ${e.message}`, "err");
+    hint(`Delete failed: ${e.message}`, "err");
   }
 }
 
@@ -272,9 +272,10 @@ function openEditor(url, name) {
     canvas.height = baseImg.naturalHeight;
     redraw();
     $("editor").classList.remove("hidden");
+    selectTool(tool);        // syncs the shade button to the active tool
     editorHint("");
   };
-  baseImg.onerror = () => alert("Bild konnte nicht geladen werden.");
+  baseImg.onerror = () => alert("Could not load the image.");
   baseImg.src = url;
 }
 
@@ -303,11 +304,13 @@ function selectTool(name) {
   document.querySelectorAll(".tool").forEach((b) =>
     b.classList.toggle("active", b.dataset.tool === name));
   canvas.style.cursor = name === "text" ? "text" : "crosshair";
+  // Shading only means anything for closed shapes, so only offer it there.
+  $("fill").classList.toggle("hidden", name !== "rect" && name !== "ellipse");
   if (name !== "crop") { cropRect = null; $("cropActions").classList.add("hidden"); redraw(); }
-  editorHint(name === "text" ? "In das Bild klicken und tippen. Enter = fertig, Esc = abbrechen."
-    : name === "counter" ? "Klicken setzt eine fortlaufende Nummer."
-    : name === "pixelate" ? "Bereich aufziehen, um ihn unkenntlich zu machen."
-    : name === "crop" ? "Auszuschneidenden Bereich aufziehen, dann „Zuschneiden“."
+  editorHint(name === "text" ? "Click on the image and type. Enter to confirm, Esc to cancel."
+    : name === "counter" ? "Each click drops the next number in sequence."
+    : name === "pixelate" ? "Drag over an area to obscure it."
+    : name === "crop" ? "Drag the area to keep, then press Crop."
     : "");
 }
 
@@ -369,14 +372,26 @@ function drawShape(s) {
   const w = Math.abs(s.x2 - s.x1), h = Math.abs(s.y2 - s.y1);
 
   switch (s.type) {
+    // Filled shapes are translucent and keep their outline: the point is to
+    // highlight an area, not to paint over the evidence underneath.
     case "rect":
-      if (s.filled) ctx.fillRect(x, y, w, h); else ctx.strokeRect(x, y, w, h);
+      if (s.filled) {
+        ctx.globalAlpha = 0.3;
+        ctx.fillRect(x, y, w, h);
+        ctx.globalAlpha = 1;
+      }
+      ctx.strokeRect(x, y, w, h);
       break;
 
     case "ellipse":
       ctx.beginPath();
       ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
-      s.filled ? ctx.fill() : ctx.stroke();
+      if (s.filled) {
+        ctx.globalAlpha = 0.3;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.stroke();
       break;
 
     case "line":
@@ -386,15 +401,25 @@ function drawShape(s) {
       break;
 
     case "arrow": {
-      const head = s.w * 3.5;
+      const head = s.w * 4;
       const a = Math.atan2(s.y2 - s.y1, s.x2 - s.x1);
+      // Stop the shaft where the head begins. Drawing it all the way to the
+      // tip leaves the round line cap poking out past the arrowhead, which is
+      // what makes the point look blunt and offset.
+      const backX = s.x2 - head * 0.85 * Math.cos(a);
+      const backY = s.y2 - head * 0.85 * Math.sin(a);
       ctx.beginPath();
-      ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2);
+      ctx.moveTo(s.x1, s.y1);
+      ctx.lineTo(backX, backY);
       ctx.stroke();
+
       ctx.beginPath();
-      ctx.moveTo(s.x2, s.y2);
-      ctx.lineTo(s.x2 - head * Math.cos(a - Math.PI / 6), s.y2 - head * Math.sin(a - Math.PI / 6));
-      ctx.lineTo(s.x2 - head * Math.cos(a + Math.PI / 6), s.y2 - head * Math.sin(a + Math.PI / 6));
+      ctx.moveTo(s.x2, s.y2);                       // exactly on the endpoint
+      ctx.lineTo(s.x2 - head * Math.cos(a - Math.PI / 7),
+                 s.y2 - head * Math.sin(a - Math.PI / 7));
+      ctx.lineTo(backX, backY);                     // notch, so head meets shaft
+      ctx.lineTo(s.x2 - head * Math.cos(a + Math.PI / 7),
+                 s.y2 - head * Math.sin(a + Math.PI / 7));
       ctx.closePath();
       ctx.fill();
       break;
@@ -530,7 +555,7 @@ function end(ev) {
     if (w < 20 || h < 20) { cropRect = null; $("cropActions").classList.add("hidden"); }
     else {
       $("cropActions").classList.remove("hidden");
-      editorHint(`Auswahl ${Math.round(w)} × ${Math.round(h)} px — „Zuschneiden“ übernimmt sie.`);
+      editorHint(`Selection ${Math.round(w)} × ${Math.round(h)} px. Press Crop to apply.`);
     }
     redraw();
     return;
@@ -567,7 +592,7 @@ function beginText(p) {
   // would be undone by the browser's own focus handling for the same click,
   // which fires blur and closes the field again.
   setTimeout(() => textInput.focus({ preventScroll: true }), 0);
-  editorHint("Enter = übernehmen · Umschalt+Enter = neue Zeile · Esc = abbrechen");
+  editorHint("Enter to confirm · Shift+Enter for a new line · Esc to cancel");
 }
 
 function styleTextInput() {
@@ -661,7 +686,7 @@ $("cropApply").onclick = () => {
     $("cropActions").classList.add("hidden");
     redraw();
     selectTool("arrow");                 // clears the hint, so set it after
-    editorHint(`Zugeschnitten auf ${w} × ${h} px.`);
+    editorHint(`Cropped to ${w} × ${h} px.`);
   };
   img.src = cut.toDataURL("image/jpeg", 0.95);
 };
@@ -752,10 +777,10 @@ $("save").onclick = async () => {
       body: JSON.stringify({ dataUrl, source: sourceName }),
     });
     closeEditor();
-    hint(`Markiertes Bild gespeichert: ${res.file}`, "ok");
+    hint(`Annotated image saved: ${res.file}`, "ok");
     loadMedia();
   } catch (e) {
-    alert("Speichern fehlgeschlagen: " + e.message);
+    alert("Save failed: " + e.message);
   } finally {
     $("save").disabled = false;
   }
