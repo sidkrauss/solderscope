@@ -368,10 +368,10 @@ def make_thumb(photo: Path, dest: Path = None):
         return None                     # gallery falls back to the original
 
 
-def _thumbs_in_background(paths):
+def _thumbs_in_background(paths, dest=None):
     def work():
         for p in paths:
-            make_thumb(p)
+            make_thumb(p, dest)
     threading.Thread(target=work, daemon=True).start()
 
 
@@ -471,6 +471,32 @@ def list_media():
     return {"photos": photos, "videos": videos}
 
 
+def list_session_frames(folder_name):
+    """Frames of one session, newest first, shaped like list_media()'s photos."""
+    folder = session.resolve_folder(SESSION_DIR, folder_name)
+    if folder is None:
+        return None
+    thumbs = SESSION_THUMB_DIR / folder.name
+    out, missing = [], []
+    for p in _by_mtime(folder.glob("*.jpg")):
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        try:
+            fresh = _thumb_path(p, thumbs).stat().st_mtime >= st.st_mtime
+        except OSError:
+            fresh = False
+        if not fresh:
+            missing.append(p)
+        out.append({"name": p.name, "size": st.st_size, "mtime": int(st.st_mtime),
+                    "url": f"/media/photos/sessions/{folder.name}/{p.name}",
+                    "thumb": f"/thumb-session/{folder.name}/{p.name}"})
+    if missing:
+        _thumbs_in_background(missing, thumbs)
+    return out
+
+
 def delete_media(rel):
     """Delete one photo or recording below MEDIA_ROOT."""
     if not rel:
@@ -490,6 +516,24 @@ def delete_media(rel):
     except OSError as e:
         return False, {"error": f"delete failed: {e}"}
     return True, {"deleted": target.name}
+
+
+def delete_session(folder_name):
+    """Delete a whole session: its frames, its session.json, its thumbnails."""
+    folder = session.resolve_folder(SESSION_DIR, folder_name)
+    if folder is None:
+        return False, {"error": "session not found"}
+    with _session_lock:
+        # The running session is still writing into this folder, and its
+        # session.json is the deliverable. Make the operator stop it first.
+        if _session_state is not None and _session_state.folder == folder.name:
+            return False, {"error": "That session is still running"}
+    try:
+        shutil.rmtree(folder)
+        shutil.rmtree(SESSION_THUMB_DIR / folder.name, ignore_errors=True)
+    except OSError as e:
+        return False, {"error": f"delete failed: {e}"}
+    return True, {"deleted": folder.name}
 
 
 def disk_info():
@@ -579,6 +623,7 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/status":
             self._json({"stream_active": _mtx_active(),
                         "recording": recording_state(),
+                        "session": session_status(),
                         "disk": disk_info()})
         elif route == "/api/stream-ready":
             # "Service is running" is not the same as "stream is serving":
@@ -588,6 +633,30 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ready": _stream_ready()})
         elif route == "/api/media":
             self._json(list_media())
+        elif route == "/api/session":
+            self._json(session_status())
+        elif route == "/api/sessions":
+            self._json({"sessions": session.list_sessions(SESSION_DIR)})
+        elif route == "/api/session-frames":
+            frames = list_session_frames((parse_qs(u.query).get("id") or [""])[0])
+            if frames is None:
+                self._json({"error": "session not found"}, 404)
+            else:
+                self._json({"frames": frames})
+        elif route.startswith("/thumb-session/"):
+            rel = unquote(route[len("/thumb-session/"):])
+            fname, _, photo_name = rel.partition("/")
+            folder = session.resolve_folder(SESSION_DIR, fname)
+            # resolve_folder guards the folder half; photo_name must stay a bare
+            # filename so it cannot climb back out with a ".." of its own. ".."
+            # alone carries no separator but still names the parent, and only
+            # resolves to a harmless 404 by accident -- reject it outright.
+            if folder is None or photo_name in ("", ".", "..") or "/" in photo_name:
+                self._json({"error": "forbidden"}, 403)
+                return
+            photo = folder / photo_name
+            t = make_thumb(photo, SESSION_THUMB_DIR / folder.name)
+            self._file(t or photo, "image/jpeg")   # fall back to the original
         elif route.startswith("/thumb/"):
             name = unquote(route[len("/thumb/"):])
             photo = (PHOTO_DIR / name).resolve()
@@ -630,10 +699,21 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path == "/api/save-annotated":
             ok, payload = self._save_annotated(body)
             self._json(payload, 200 if ok else 500)
+        elif u.path == "/api/session/start":
+            ok, payload = start_session(body.get("name"), body.get("interval"))
+            # 409: the sensor is busy, which is a conflict the operator can
+            # resolve by stopping what is running, not a server fault.
+            self._json(payload, 200 if ok else 409)
+        elif u.path == "/api/session/stop":
+            ok, payload = stop_session()
+            self._json(payload, 200 if ok else 404)
         elif u.path == "/api/delete":
             rel = body.get("path") or ""
-            rel = rel[len("/media/"):] if rel.startswith("/media/") else rel
-            ok, payload = delete_media(unquote(rel))
+            if rel.startswith("session:"):
+                ok, payload = delete_session(rel[len("session:"):])
+            else:
+                rel = rel[len("/media/"):] if rel.startswith("/media/") else rel
+                ok, payload = delete_media(unquote(rel))
             self._json(payload, 200 if ok else 400)
         else:
             self._json({"error": "not found"}, 404)
