@@ -298,6 +298,24 @@ def test_frames_are_spaced_by_the_interval(tmp_path):
     assert clock.waits == [10.0, 10.0]
 
 
+def test_the_first_frame_is_taken_at_once(tmp_path):
+    # Second 0 is the first photo. Waiting out an interval before the first
+    # frame would lose the "before" shot, which is the one worth having: the
+    # operator presses start and expects the board as it is right now.
+    stamps = []
+    clock = FakeClock()
+
+    def capture(target_dir, stamp):
+        stamps.append(clock.time())
+        (target_dir / f"{stamp}.jpg").write_bytes(b"jpeg")
+        return f"{stamp}.jpg"
+
+    run_session(tmp_path, capture, interval=3600, stop_after=1, clock=clock)
+    # An hour-long interval: if the first capture waited for a tick, this test
+    # would record 4600.0 rather than the start time.
+    assert stamps == [1000.0]
+
+
 def test_a_slow_capture_does_not_push_the_schedule_out(tmp_path):
     # The regression test for drift. Each capture costs 3s of wall time; because
     # next_tick() is anchored to state.started, the loop must wait only the
