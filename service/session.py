@@ -9,6 +9,7 @@ decision in here -- when the next frame is due, whether the disk still has room,
 what the folder is called -- testable without a camera attached.
 """
 
+import math
 from datetime import datetime
 
 # Below ~5s a Zero 2 W cannot finish a 12 MP capture plus its thumbnail before
@@ -44,3 +45,16 @@ def clamp_interval(value):
     except (TypeError, ValueError):
         return DEFAULT_INTERVAL
     return max(MIN_INTERVAL, min(MAX_INTERVAL, n))
+
+
+def next_tick(started, interval, now):
+    """Time of the next scheduled capture.
+
+    Anchored to `started` rather than to the end of the last capture: sleeping a
+    fixed interval after each frame would add the capture duration to every gap,
+    so a nominal 10s interval would drift out to 13s or worse. If a capture
+    overran one or more slots, this returns the next slot strictly in the
+    future instead of firing the missed ones back to back.
+    """
+    elapsed = now - started
+    return started + interval * (math.floor(elapsed / interval) + 1)

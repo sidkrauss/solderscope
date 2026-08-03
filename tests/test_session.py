@@ -48,3 +48,20 @@ def test_interval_falls_back_to_the_default_when_unusable():
 
 def test_interval_accepts_a_numeric_string():
     assert session.clamp_interval("45") == 45
+
+
+def test_next_tick_follows_the_fixed_schedule():
+    # Ticks are anchored to the start time, not to when the last capture ended,
+    # so a slow capture does not push every later frame further out.
+    assert session.next_tick(started=1000, interval=10, now=1000) == 1010
+    assert session.next_tick(started=1000, interval=10, now=1003) == 1010
+
+
+def test_next_tick_skips_slots_missed_by_a_slow_capture():
+    # A capture that overran two whole slots must not trigger a catch-up burst;
+    # the loop jumps to the next slot in the future.
+    assert session.next_tick(started=1000, interval=10, now=1025) == 1030
+
+
+def test_next_tick_lands_exactly_on_a_slot_boundary():
+    assert session.next_tick(started=1000, interval=10, now=1020) == 1030
