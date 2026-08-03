@@ -201,3 +201,236 @@ def test_a_file_masquerading_as_a_session_is_refused(tmp_path):
     root.mkdir()
     (root / "notafolder").write_text("x")
     assert session.resolve_folder(root, "notafolder") is None
+
+
+import json
+import threading
+
+
+class FakeClock:
+    """A clock the test advances by hand.
+
+    wait() returns True when the stop event was set (mirroring
+    threading.Event.wait), and otherwise jumps straight to the deadline so a
+    session covering an hour runs in microseconds. Every delay is recorded so a
+    test can assert the schedule, not just that some waiting happened.
+    """
+
+    def __init__(self, now=1000.0):
+        self.now = now
+        self.waits = []
+
+    def time(self):
+        return self.now
+
+    def wait(self, event, timeout):
+        self.waits.append(timeout)
+        self.now += max(0.0, timeout)
+        return event.is_set()
+
+
+def run_session(tmp_path, capture, free_bytes=lambda: 20e9, name="", interval=10,
+                stop_after=3, clock=None):
+    """Drive a session to completion with a capture stub.
+
+    The stub is wrapped so the stop event fires after `stop_after` captures,
+    which is how the test ends a loop that would otherwise run forever. The
+    event is set during the final capture, so the loop breaks after writing
+    that frame and the wait after it is skipped.
+    """
+    clock = clock or FakeClock()
+    stop = threading.Event()
+    calls = {"n": 0}
+
+    def wrapped(target_dir, stamp):
+        calls["n"] += 1
+        if calls["n"] >= stop_after:
+            stop.set()
+        return capture(target_dir, stamp)
+
+    st = session.State(name=name, interval=interval, started=int(clock.time()))
+    session.run_loop(
+        state=st,
+        sessions_root=tmp_path,
+        capture=wrapped,
+        free_bytes=free_bytes,
+        clock=clock,
+        stop_event=stop,
+    )
+    return st
+
+
+def read_session_file(tmp_path, state):
+    return json.loads((tmp_path / state.folder / "session.json").read_text())
+
+
+def test_a_session_writes_frames_and_a_session_file(tmp_path):
+    def capture(target_dir, stamp):
+        f = target_dir / f"{stamp}.jpg"
+        f.write_bytes(b"jpeg")
+        return f.name
+
+    st = run_session(tmp_path, capture, stop_after=3)
+
+    folder = tmp_path / st.folder
+    assert st.photos == 3
+    assert len(list(folder.glob("*.jpg"))) == 3
+    doc = json.loads((folder / "session.json").read_text())
+    assert doc["photos"] == 3
+    assert doc["stop_reason"] == "manual"
+    assert doc["ended"] is not None
+
+
+def test_frames_are_spaced_by_the_interval(tmp_path):
+    stamps = []
+    clock = FakeClock()
+
+    def capture(target_dir, stamp):
+        stamps.append(clock.time())
+        (target_dir / f"{stamp}.jpg").write_bytes(b"jpeg")
+        return f"{stamp}.jpg"
+
+    run_session(tmp_path, capture, interval=10, stop_after=3, clock=clock)
+    # Exact tick times, not merely distinct ones: a scheduler that slept a full
+    # interval after each capture would also produce three distinct stamps.
+    assert stamps == [1000.0, 1010.0, 1020.0]
+    # No wait after the final frame -- the stop event is set during it.
+    assert clock.waits == [10.0, 10.0]
+
+
+def test_a_slow_capture_does_not_push_the_schedule_out(tmp_path):
+    # The regression test for drift. Each capture costs 3s of wall time; because
+    # next_tick() is anchored to state.started, the loop must wait only the
+    # remaining 7s and still fire on the 10s grid. A naive sleep(interval) after
+    # each frame would land on 1000/1013/1026 and wait 10s every time.
+    clock = FakeClock()
+    stamps = []
+
+    def capture(target_dir, stamp):
+        stamps.append(clock.time())
+        clock.now += 3.0
+        (target_dir / f"{stamp}.jpg").write_bytes(b"jpeg")
+        return f"{stamp}.jpg"
+
+    run_session(tmp_path, capture, interval=10, stop_after=3, clock=clock)
+    assert stamps == [1000.0, 1010.0, 1020.0]
+    assert clock.waits == [7.0, 7.0]
+
+
+def test_a_failing_capture_does_not_end_the_session(tmp_path):
+    calls = {"n": 0}
+
+    def capture(target_dir, stamp):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("Capture failed")
+        (target_dir / f"{stamp}.jpg").write_bytes(b"jpeg")
+        return f"{stamp}.jpg"
+
+    st = run_session(tmp_path, capture, stop_after=3)
+    assert st.photos == 2
+    assert st.stop_reason == "manual"
+
+
+def test_three_failures_in_a_row_end_the_session(tmp_path):
+    def capture(target_dir, stamp):
+        raise RuntimeError("Capture failed")
+
+    st = run_session(tmp_path, capture, stop_after=99)
+    assert st.photos == 0
+    assert st.stop_reason == "error"
+    assert st.last_error == "Capture failed"
+
+
+def test_a_full_disk_ends_the_session_before_writing(tmp_path):
+    def capture(target_dir, stamp):
+        raise AssertionError("must not capture with the disk this full")
+
+    st = run_session(tmp_path, capture, free_bytes=lambda: 1e9, stop_after=99)
+    assert st.photos == 0
+    assert st.stop_reason == "disk"
+
+
+def test_a_recovered_failure_still_shows_in_the_record(tmp_path):
+    # consecutive_failures resets on a good frame, so without a cumulative
+    # count a session that stumbled and recovered would read as though it
+    # never had trouble.
+    calls = {"n": 0}
+
+    def capture(target_dir, stamp):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("Capture failed")
+        (target_dir / f"{stamp}.jpg").write_bytes(b"jpeg")
+        return f"{stamp}.jpg"
+
+    st = run_session(tmp_path, capture, stop_after=3)
+    assert st.consecutive_failures == 0
+    assert st.total_failures == 1
+    doc = json.loads((tmp_path / st.folder / "session.json").read_text())
+    assert doc["total_failures"] == 1
+
+
+def test_finishing_twice_keeps_the_first_reason(tmp_path):
+    st = session.State(name="", interval=10, started=1000)
+    st.finish("manual", now=1600)
+    st.finish("disk", now=1700)
+    assert st.stop_reason == "manual"
+    assert st.ended == 1600
+
+
+def test_the_session_file_survives_an_unexpected_crash(tmp_path):
+    def capture(target_dir, stamp):
+        raise KeyboardInterrupt("simulated crash")
+
+    clock = FakeClock()
+    st = session.State(name="", interval=10, started=int(clock.time()))
+    try:
+        session.run_loop(
+            state=st, sessions_root=tmp_path, capture=capture,
+            free_bytes=lambda: 20e9, clock=clock, stop_event=threading.Event(),
+        )
+    except KeyboardInterrupt:
+        pass
+    doc = json.loads((tmp_path / st.folder / "session.json").read_text())
+    assert doc["stop_reason"] == "error"
+
+
+def test_no_exit_path_leaves_the_file_claiming_the_session_runs(tmp_path):
+    # The HTTP handler trusts session.json. Whatever ends a session -- a manual
+    # stop, a failure streak, the disk floor, or a crash -- the file on disk
+    # must never still say "running" with no end time.
+    def good(target_dir, stamp):
+        (target_dir / f"{stamp}.jpg").write_bytes(b"jpeg")
+        return f"{stamp}.jpg"
+
+    def bad(target_dir, stamp):
+        raise RuntimeError("Capture failed")
+
+    def crash(target_dir, stamp):
+        raise KeyboardInterrupt("simulated crash")
+
+    finished = [
+        run_session(tmp_path / "manual", good, stop_after=3),
+        run_session(tmp_path / "error", bad, stop_after=99),
+        run_session(tmp_path / "disk", good, free_bytes=lambda: 1e9, stop_after=99),
+    ]
+    roots = [tmp_path / "manual", tmp_path / "error", tmp_path / "disk"]
+
+    clock = FakeClock()
+    crashed = session.State(name="", interval=10, started=int(clock.time()))
+    try:
+        session.run_loop(
+            state=crashed, sessions_root=tmp_path / "crash", capture=crash,
+            free_bytes=lambda: 20e9, clock=clock, stop_event=threading.Event(),
+        )
+    except KeyboardInterrupt:
+        pass
+    finished.append(crashed)
+    roots.append(tmp_path / "crash")
+
+    assert [st.stop_reason for st in finished] == ["manual", "error", "disk", "error"]
+    for root, st in zip(roots, finished):
+        doc = read_session_file(root, st)
+        assert doc["stop_reason"] != "running"
+        assert doc["ended"] is not None

@@ -9,6 +9,7 @@ decision in here -- when the next frame is due, whether the disk still has room,
 what the folder is called -- testable without a camera attached.
 """
 
+import json
 import math
 import os
 from datetime import datetime
@@ -94,6 +95,7 @@ class State:
         self.last_frame = None
         self.last_error = None
         self.consecutive_failures = 0
+        self.total_failures = 0        # survives a good frame, unlike the above
         self.running = True
         self.stop_reason = "running"
 
@@ -106,8 +108,13 @@ class State:
     def record_failure(self, message):
         self.last_error = message
         self.consecutive_failures += 1
+        self.total_failures += 1
 
     def finish(self, reason, now):
+        # First reason wins: run_loop calls this once from its finally block,
+        # and a later caller must not relabel a manual stop as something else.
+        if not self.running:
+            return
         self.running = False
         self.stop_reason = reason
         self.ended = now
@@ -122,6 +129,7 @@ class State:
             "started": self.started,
             "ended": self.ended,
             "photos": self.photos,
+            "total_failures": self.total_failures,
             "stop_reason": self.stop_reason,
             "last_error": self.last_error,
         }
@@ -160,3 +168,66 @@ def resolve_folder(sessions_root, name):
     if not target.is_dir():
         return None
     return target
+
+
+def write_session_file(folder, state):
+    """Persist session.json atomically.
+
+    Written after every frame, so a session cut short by a power cut still
+    describes what it captured. Atomic because the Sessions tab may read it at
+    the same moment.
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    tmp = folder / "session.json.part"
+    try:
+        tmp.write_text(json.dumps(state.as_json(), indent=2))
+        tmp.replace(folder / "session.json")
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def run_loop(state, sessions_root, capture, free_bytes, clock, stop_event):
+    """Capture frames until stopped, the disk fills, or captures keep failing.
+
+    `capture(folder, stamp)` writes one frame and returns its filename, or
+    raises. `free_bytes()` reports free space. `clock` supplies time() and
+    wait(event, timeout). Everything that touches hardware arrives through
+    those, which is what makes this testable without a camera.
+
+    The caller owns the sensor before calling this and restores the stream
+    afterwards; this function never touches MediaMTX.
+    """
+    folder = Path(sessions_root) / state.folder
+    folder.mkdir(parents=True, exist_ok=True)
+    write_session_file(folder, state)
+
+    reason = "manual"
+    try:
+        while not stop_event.is_set():
+            blocked = stop_reason_for(state, free_bytes())
+            if blocked:
+                reason = blocked
+                break
+
+            stamp = datetime.fromtimestamp(clock.time()).strftime("%Y-%m-%d_%H-%M-%S")
+            try:
+                state.record_frame(capture(folder, stamp))
+            except Exception as e:
+                # One bad frame is not fatal; stop_reason_for() ends the session
+                # once they come in a streak.
+                state.record_failure(str(e) or e.__class__.__name__)
+
+            write_session_file(folder, state)
+
+            if stop_event.is_set():
+                break
+            delay = next_tick(state.started, state.interval, clock.time()) - clock.time()
+            if clock.wait(stop_event, max(0.0, delay)):
+                break
+    except BaseException:
+        # Never leave session.json claiming the session is still running.
+        reason = "error"
+        raise
+    finally:
+        state.finish(reason, int(clock.time()))
+        write_session_file(folder, state)
