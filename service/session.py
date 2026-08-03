@@ -186,6 +186,37 @@ def write_session_file(folder, state):
         tmp.unlink(missing_ok=True)
 
 
+def list_sessions(sessions_root):
+    """Past sessions, newest first, read from their session.json files.
+
+    Reading the small JSON beats scanning every folder's frames, which matters
+    once a few long sessions have accumulated. Folders without a readable
+    session.json are skipped rather than guessed at.
+    """
+    root = Path(sessions_root)
+    if not root.is_dir():
+        return []
+    out = []
+    for d in root.iterdir():
+        if not d.is_dir():
+            continue
+        try:
+            doc = json.loads((d / "session.json").read_text())
+        except (OSError, ValueError):
+            continue
+        size = 0
+        for f in d.glob("*.jpg"):
+            try:
+                size += f.stat().st_size
+            except OSError:
+                pass          # deleted while we were listing
+        doc["folder"] = d.name      # trust the folder, not the file's copy
+        doc["size"] = size
+        out.append(doc)
+    out.sort(key=lambda s: s.get("started") or 0, reverse=True)
+    return out
+
+
 def run_loop(state, sessions_root, capture, free_bytes, clock, stop_event):
     """Capture frames until stopped, the disk fills, or captures keep failing.
 

@@ -434,3 +434,48 @@ def test_no_exit_path_leaves_the_file_claiming_the_session_runs(tmp_path):
         doc = read_session_file(root, st)
         assert doc["stop_reason"] != "running"
         assert doc["ended"] is not None
+
+
+def _write_session(root, folder, **fields):
+    d = root / folder
+    d.mkdir(parents=True, exist_ok=True)
+    doc = {"name": "", "folder": folder, "interval": 10, "started": 1000,
+           "ended": 1100, "photos": 2, "stop_reason": "manual", "last_error": None}
+    doc.update(fields)
+    (d / "session.json").write_text(json.dumps(doc))
+    for i in range(doc["photos"]):
+        (d / f"frame{i}.jpg").write_bytes(b"jpeg")
+    return d
+
+
+def test_sessions_are_listed_newest_first(tmp_path):
+    _write_session(tmp_path, "2026-08-01_10-00-00_old", started=1000)
+    _write_session(tmp_path, "2026-08-03_10-00-00_new", started=3000)
+    got = session.list_sessions(tmp_path)
+    assert [s["folder"] for s in got] == [
+        "2026-08-03_10-00-00_new", "2026-08-01_10-00-00_old"]
+
+
+def test_a_listed_session_carries_its_size_and_count(tmp_path):
+    _write_session(tmp_path, "2026-08-03_10-00-00_job", photos=3)
+    got = session.list_sessions(tmp_path)[0]
+    assert got["photos"] == 3
+    assert got["size"] == 3 * len(b"jpeg")
+
+
+def test_a_folder_without_a_session_file_is_skipped(tmp_path):
+    (tmp_path / "junk").mkdir()
+    _write_session(tmp_path, "2026-08-03_10-00-00_job")
+    assert len(session.list_sessions(tmp_path)) == 1
+
+
+def test_a_corrupt_session_file_is_skipped(tmp_path):
+    d = tmp_path / "broken"
+    d.mkdir()
+    (d / "session.json").write_text("{not json")
+    _write_session(tmp_path, "2026-08-03_10-00-00_job")
+    assert len(session.list_sessions(tmp_path)) == 1
+
+
+def test_listing_a_missing_root_is_empty(tmp_path):
+    assert session.list_sessions(tmp_path / "nope") == []
