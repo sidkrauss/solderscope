@@ -151,6 +151,10 @@ function applySession(st) {
     $("sessionShot").removeAttribute("src");
     delete $("sessionShot").dataset.url;
     $("sessionError").textContent = "";
+    // loadSessions() replaces the frame grid with the card list, so drop the
+    // open-session marker with it. Leaving it set sends the next delete of a
+    // flat photo down the session branch, and the photo lingers on screen.
+    openSession = null;
     loadSessions();
     recoverStream();          // same blank-until-ready path as after a photo
   }

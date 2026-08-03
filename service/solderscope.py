@@ -227,11 +227,15 @@ def _free_bytes():
     outrank a running job, so report plenty of room and let the next tick
     re-check: the floor exists to catch a filling card over minutes, not to
     react to one bad stat call.
+
+    Finite rather than float("inf"): this value reaches /api/session as
+    free_gb, and json.dumps writes a bare Infinity token that JSON.parse
+    rejects.
     """
     try:
         return shutil.disk_usage(MEDIA_ROOT if MEDIA_ROOT.exists() else "/").free
     except OSError:
-        return float("inf")
+        return 1 << 60
 
 
 def start_session(name, interval):
@@ -309,7 +313,12 @@ def _session_thread(state, stop):
         _systemctl("start")
         # Same handover as capture_still: the lock is freed only once the
         # stream serves again, so nothing races a half-started MediaMTX.
-        threading.Thread(target=_release_when_ready, daemon=True).start()
+        try:
+            threading.Thread(target=_release_when_ready, daemon=True).start()
+        except (RuntimeError, OSError):
+            # Out of threads. Release here instead, or the lock is never freed
+            # and every later capture is refused until the service restarts.
+            _capture_lock.release()
 
 
 def stop_session():
