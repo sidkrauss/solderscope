@@ -74,11 +74,10 @@ The finished result, as the customer receives it:
 
 ### The build
 
-<!-- Photo of the setup: docs/screenshots/00-build.jpg -->
-*(Photo of the full setup to follow.)*
+![The microscope with the camera enclosure on the photo tube](docs/screenshots/00-build.jpg)
 
-The HQ Camera and the Pi Zero 2 W share a single 3D printed enclosure with a
-screw-on lid.
+The HQ Camera and the Pi Zero 2 W share a single 3D printed enclosure, the
+orange box sitting on the photo tube, with the 0.5× C-mount adapter below it.
 
 > **On the enclosure model:** This project grew over a long stretch of time, and
 > the origin of the files originally printed can no longer be traced. If you are
@@ -319,15 +318,14 @@ sensor, and it does that through polkit rather than a sudoers entry:
 // config/50-solderscope.rules
 if (action.id == "org.freedesktop.systemd1.manage-units" &&
     action.lookup("unit") == "mediamtx.service" &&
-    subject.user == "master" && !subject.remote) {
+    subject.user == "master") {
     return polkit.Result.YES;
 }
 ```
 
-One user, one unit, local sessions only. `systemctl` then talks to systemd over
-D-Bus with exactly the privilege it needs, and no setuid binary is involved.
-Verified on the target: stopping `ssh`, `cron` or the service's own unit is
-still refused.
+One user, one unit. `systemctl` then talks to systemd over D-Bus with exactly
+the privilege it needs, and no setuid binary is involved. Verified on the
+target: stopping `ssh`, `cron` or the service's own unit is still refused.
 
 **No root.** The service listens on port 80 as an unprivileged user, because
 systemd hands it a single capability:

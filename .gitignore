@@ -1,11 +1,12 @@
-# Aufnahmen gehören nicht ins Repo
+# Captures belong on the device, not in the repository
 *.jpg
 *.jpeg
 *.mp4
 media/
 recordings/
+thumbs/
 
-# Backups der Konfiguration
+# Backups of the deployed configuration
 *.bak
 *.bak-*
 *.orig
@@ -14,10 +15,11 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Beispielbild fuer die Doku ist gewollt
-!docs/example-annotated.jpg
+# Documentation images are intentional
+!docs/*.jpg
+!docs/screenshots/*.jpg
 
-# Dotfiles des Arbeitsverzeichnisses (keine Projektdateien)
+# Editor and shell dotfiles that live in this working directory
 /.bash_profile
 /.bashrc
 /.gitconfig
@@ -30,8 +32,6 @@ __pycache__/
 /.zprofile
 /.zshrc
 /.claude/
-!docs/screenshots/*.jpg
 
-# Vorgaengerdatei, ersetzt durch sudoers-solderscope
-/config/sudoers-picamlab
-/config/sudoers-*
+# Superseded by the polkit rule; kept locally only
+/config/sudo*

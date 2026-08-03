@@ -253,13 +253,13 @@ let color = "#ff2d2d";
 let widthStep = 3;
 let filled = false;
 let drawing = null;
-let sourceName = "bild";
+let sourceName = "image";
 let counter = 1;
 let textDraft = null;   // {x, y} while typing
 let cropRect = null;   // {x1,y1,x2,y2} while the crop selection is being drawn
 
 function openEditor(url, name) {
-  sourceName = name || "bild";
+  sourceName = name || "image";
   shapes = [];
   redoStack = [];
   counter = 1;
@@ -281,6 +281,11 @@ function openEditor(url, name) {
 
 function closeEditor() {
   cancelText();
+  // Drop an in-flight drag: Esc mid-stroke would otherwise leave it dangling
+  // and paint it onto the next image opened.
+  drawing = null;
+  cropRect = null;
+  $("cropActions").classList.add("hidden");
   $("editor").classList.add("hidden");
   // Release the backing bitmap: a 12 MP canvas holds ~49 MB, which matters
   // on a tablet.
@@ -401,17 +406,21 @@ function drawShape(s) {
       break;
 
     case "arrow": {
-      const head = s.w * 4;
+      const len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+      // Clamp the head so a short arrow cannot grow a tail pointing backwards.
+      const head = Math.min(s.w * 4, len * 0.9) || s.w * 4;
       const a = Math.atan2(s.y2 - s.y1, s.x2 - s.x1);
       // Stop the shaft where the head begins. Drawing it all the way to the
       // tip leaves the round line cap poking out past the arrowhead, which is
       // what makes the point look blunt and offset.
       const backX = s.x2 - head * 0.85 * Math.cos(a);
       const backY = s.y2 - head * 0.85 * Math.sin(a);
-      ctx.beginPath();
-      ctx.moveTo(s.x1, s.y1);
-      ctx.lineTo(backX, backY);
-      ctx.stroke();
+      if (len > head * 0.85) {          // no shaft worth drawing on a stub
+        ctx.beginPath();
+        ctx.moveTo(s.x1, s.y1);
+        ctx.lineTo(backX, backY);
+        ctx.stroke();
+      }
 
       ctx.beginPath();
       ctx.moveTo(s.x2, s.y2);                       // exactly on the endpoint
@@ -718,7 +727,9 @@ $("redo").onclick = () => {
 $("clear").onclick = () => {
   cancelText();
   if (!shapes.length) return;
-  redoStack = shapes.slice().reverse().concat(redoStack);
+  // Append, do not prepend: the cleared shapes are older than anything already
+  // on the redo stack, so redo must hand them back last and in order.
+  redoStack = redoStack.concat(shapes.slice().reverse());
   shapes = [];
   counter = 1;
   redraw();

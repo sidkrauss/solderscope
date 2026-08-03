@@ -198,8 +198,11 @@ def make_thumb(photo: Path):
             # request can hit the same file at once, and a shared .part would
             # interleave their writes.
             tmp = thumb.with_suffix(f".{os.getpid()}.{threading.get_ident()}.part")
-            im.save(tmp, "JPEG", quality=75)
-            tmp.replace(thumb)          # atomic: never serve a half-written file
+            try:
+                im.save(tmp, "JPEG", quality=75)
+                tmp.replace(thumb)      # atomic: never serve a half-written file
+            finally:
+                tmp.unlink(missing_ok=True)   # no leftovers if the save failed
         return thumb
     except Exception:
         return None                     # gallery falls back to the original
@@ -288,8 +291,11 @@ def list_media():
                 st = p.stat()
             except OSError:
                 continue             # deleted while we were listing
-            t = _thumb_path(p)
-            if not (t.exists() and t.stat().st_mtime >= st.st_mtime):
+            try:
+                fresh = _thumb_path(p).stat().st_mtime >= st.st_mtime
+            except OSError:
+                fresh = False        # missing, or deleted while we looked
+            if not fresh:
                 missing.append(p)
             photos.append({"name": p.name, "size": st.st_size,
                            "mtime": int(st.st_mtime),
@@ -377,7 +383,8 @@ class Handler(BaseHTTPRequestHandler):
             if start > end or start >= size:
                 self.send_response(416)
                 self.send_header("Content-Range", f"bytes */{size}")
-                self.end_headers()
+                self.send_header("Content-Length", "0")   # HTTP/1.1 keep-alive
+                self.end_headers()                        # would hang without it
                 return
             status = 206
 
@@ -481,7 +488,7 @@ class Handler(BaseHTTPRequestHandler):
         data = (body.get("dataUrl") or "").split(",", 1)
         if len(data) != 2:
             return False, {"error": "no image supplied"}
-        source = _slug(Path(body.get("source") or "bild").stem)
+        source = _slug(Path(body.get("source") or "image").stem)
         PHOTO_DIR.mkdir(parents=True, exist_ok=True)
         target = PHOTO_DIR / f"{source}_annot.jpg"
         n = 2

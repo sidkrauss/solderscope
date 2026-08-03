@@ -16,10 +16,10 @@ RestartSec=5
 # Bind port 80 without running as root.
 #
 # Only AmbientCapabilities is set on purpose. Restricting CapabilityBoundingSet
-# to CAP_NET_BIND_SERVICE also strips CAP_SETUID/CAP_SETGID, which sudo needs --
-# the service would still serve port 80 but every still capture would fail with
-# "Pipeline handler in use by another process", because it could no longer stop
-# MediaMTX to hand over the sensor.
+# to CAP_NET_BIND_SERVICE was tested on the target and breaks the sensor
+# handover: the service still serves port 80, but every capture fails with
+# "Pipeline handler in use by another process" because MediaMTX can no longer
+# be stopped. The failure is easy to misread, since only photos break.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
